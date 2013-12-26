@@ -204,7 +204,7 @@ main = do
     forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
     putStrLn ""
   
-    qnames <- qualifiedName targetFile targetModule lineNo colNo importList :: IO [String]
+    qnames <- (filter (not . (' ' `elem`))) <$> qualifiedName targetFile targetModule lineNo colNo importList :: IO [String]
   
     putStrLn "<qnames>"
     forM_ qnames putStrLn
