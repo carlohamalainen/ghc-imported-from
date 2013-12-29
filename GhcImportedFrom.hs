@@ -20,9 +20,12 @@ import Name
 import Outputable
 import RdrName
 import System.Environment
+import System.IO
+import System.Process
 import TcRnTypes()
 
 import qualified SrcLoc
+import qualified Safe
 
 getImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
 getImports targetFile targetModuleName =
@@ -187,57 +190,114 @@ qualifiedName targetFile targetModuleName lineNo colNo importList =
 
         return $ bsStrings ++ esStrings ++ psStrings
 
+-- Read everything else available on a handle, and return the empty
+-- string if we have hit EOF.
+readRestOfHandle :: Handle -> IO String
+readRestOfHandle h = do
+    ineof <- hIsEOF h
+    if ineof
+        then return ""
+        else hGetContents h
+
+ghcPkgFindModule :: ModuleName -> IO (Maybe String)
+ghcPkgFindModule m = do
+
+    let m' = showSDoc tracingDynFlags (ppr $ m)
+
+    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" ["find-module", m', "--simple-output"]){ std_in = CreatePipe
+                                                                                                 , std_out = CreatePipe
+                                                                                                 , std_err = CreatePipe
+                                                                                                 }
+
+    output <- readRestOfHandle hout
+    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+
+ghcPkgHaddockUrl :: String -> IO (Maybe String)
+ghcPkgHaddockUrl p = do
+    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" ["field", p, "haddock-html"]){ std_in = CreatePipe
+                                                                                       , std_out = CreatePipe
+                                                                                       , std_err = CreatePipe
+                                                                                       }
+
+    line <- (reverse . (dropWhile (== '\n')) . reverse) <$> readRestOfHandle hout
+
+    return $ Safe.lastMay $ words line
+
+moduleNameToHtmlFile :: ModuleName -> String
+moduleNameToHtmlFile m =  base' ++ ".html"
+    where base = (showSDoc tracingDynFlags (ppr m))
+          base' = map f base
+          f '.' = '-'
+          f c   = c
+
+
 main :: IO ()
 main = do
     args <- getArgs
-  
+
     -- quick and dirty argument parsing, no error checking
     let targetFile     = args !! 0
         targetModule   = args !! 1
         symbol         = args !! 2
         lineNo         = (read $ args !! 3) :: Int
         colNo          = (read $ args !! 4) :: Int
-  
+
     importList <- (map (modName . toHaskellModule)) <$> getImports targetFile targetModule
-    importListRaw <- getImports targetFile targetModule
-  
-    forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
-    putStrLn ""
-  
+
+    -- importListRaw <- getImports targetFile targetModule
+    -- forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
+    -- putStrLn ""
+
     qnames <- (filter (not . (' ' `elem`))) <$> qualifiedName targetFile targetModule lineNo colNo importList :: IO [String]
-  
-    putStrLn "<qnames>"
-    forM_ qnames putStrLn
-    putStrLn "</qnames>"
-    putStrLn ""
-  
+
+    -- putStrLn "<qnames>"
+    -- forM_ qnames putStrLn
+    -- putStrLn "</qnames>"
+    -- putStrLn ""
+
     let postMatches = filter (postfixMatch symbol) qnames :: [String]
-  
+
         symbol' = if postMatches == [] then symbol else minimumBy (compare `on` length) postMatches -- Flaky?
-  
-    putStrLn $ "symbol:  " ++ symbol
-    putStrLn $ "symbol': " ++ symbol'
-  
-  
+
+    -- putStrLn $ "symbol:  " ++ symbol
+    -- putStrLn $ "symbol': " ++ symbol'
+
+
     let maybeExtraModule = moduleOfQualifiedName symbol'
-  
+
         importList' = if symbol == symbol' then importList else importList ++ [fromJust maybeExtraModule]
-  
-    putStrLn $ "try to match on: " ++ (show (symbol, qnames))
-    putStrLn $ "postMatches: " ++ (show postMatches)
-    putStrLn $ "importlist': " ++ (show importList')
-  
+
+    -- putStrLn $ "try to match on: " ++ (show (symbol, qnames))
+    -- putStrLn $ "postMatches: " ++ (show postMatches)
+    -- putStrLn $ "importlist': " ++ (show importList')
+
     x <- lookupSymbol targetFile targetModule symbol' importList'
-  
-    forM_ x $ \(name, lookUp) -> do putStrLn $ "file:          " ++ targetFile
-                                    putStrLn $ "module:        " ++ targetModule
-                                    putStrLn $ "symbol:        " ++ symbol'
-                                    putStrLn $ "imports:       " ++ (show importList')
-  
-                                    let definedIn    = symbolDefinedIn name
-                                        importedFrom = map symbolImportedFrom lookUp
-  
-                                    putStrLn $ "defined in:    " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
-                                    putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
-  
-  
+
+    forM_ x $ \(name, lookUp) -> do putStrLn $ "file: " ++ targetFile
+                                    putStrLn $ "module: " ++ targetModule
+                                    putStrLn $ "supplied symbol: " ++ symbol
+                                    putStrLn $ "inferred symbol: " ++ symbol'
+                                    -- putStrLn $ "imports: " ++ (show importList')
+
+                                    let definedIn = symbolDefinedIn name
+                                        importedFrom = Safe.headMay $ concat $ map symbolImportedFrom lookUp
+
+                                    putStrLn $ showSDoc tracingDynFlags (ppr $ importedFrom)
+
+                                    m' <- maybe (return Nothing) ghcPkgFindModule importedFrom
+
+                                    -- print m'
+
+                                    let base = moduleNameToHtmlFile <$> importedFrom
+
+                                    haddock <- maybe (return Nothing) ghcPkgHaddockUrl m'
+
+                                    if isNothing haddock || isNothing m'
+                                        then putStrLn $ "haddock: 111FAIL111"
+                                        else putStrLn $ "haddock: " ++ (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
+
+                                    -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
+
+                                    -- if importedFrom == []
+                                    --     then putStrLn $ "imported from: 000FAIL000"
+                                    --     else putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ head $ importedFrom))
