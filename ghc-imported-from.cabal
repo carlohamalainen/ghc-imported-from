@@ -27,6 +27,7 @@ executable ghc-imported-from
                , ghc-syb-utils
                , safe
                , process
+               , containers >= 0.5.0.0 && <= 0.5.0.0
 
   -- hs-source-dirs:      
   default-language:    Haskell2010

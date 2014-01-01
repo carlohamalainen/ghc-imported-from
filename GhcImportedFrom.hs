@@ -1,6 +1,18 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE Rank2Types #-}
 
+{-
+
+Synopsis: Attempt to guess the location of the Haddock HTML
+documentation for a given symbol in a particular module, file, and
+line/col location.
+
+See the tests directory for some example usage.
+
+Author: Carlo Hamalainen <carlo@carlo-hamalainen.net>
+
+-}
+
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Instances()
@@ -27,16 +39,41 @@ import TcRnTypes()
 import qualified SrcLoc
 import qualified Safe
 
+{-
+
+TODO
+
+* Pass in ghc options, e.g. "--package-db" so that a command like this works:
+
+    ghc-pkg --package-db ./.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d field safe haddock-html
+    haddock-html: /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html
+
+
+-}
+
+
+ourDynFlags :: DynFlags -> DynFlags
+ourDynFlags dflags = dflags' { hscTarget = HscInterpreted
+                             , ghcLink = LinkInMemory
+                             -- , packageFlags = pf
+                             -- , extraPkgConfs = (myPackage:) . extraPkgConfs dflags
+                             }
+    where dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
+          -- FIXME Do we need Opt_ImplicitPrelude? Maybe we should check
+          -- if the targetFile has an implicit prelude option set?
+          -- myPackage = PkgConfFile "/home/carlo/work/github/checker/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+          -- pf = (ExposePackage "containers-0.5.0.0"):(packageFlags dflags)
+
+-- dynflags {
+--         includePaths = otherincludes ++ includePaths dynflags,
+--         packageFlags = [ExposePackage "ghc"]} }
+
+
 getImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
 getImports targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
         runGhc (Just libdir) $ do
-            -- Set the dynamic flags for the session.
-            dflags <- getSessionDynFlags
-            -- FIXME Do we need Opt_ImplicitPrelude? Maybe we should check
-            -- if the targetFile has an implicit prelude option set?
-            let dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
-            setSessionDynFlags dflags' { hscTarget = HscInterpreted, ghcLink = LinkInMemory }
+            ourDynFlags <$> getSessionDynFlags >>= setSessionDynFlags
 
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
@@ -55,7 +92,7 @@ data HaskellModule = HaskellModule { modName          :: String
                                    , modQualifier     :: Maybe String
                                    , modIsImplicit    :: Bool
                                    , modHiding        :: [String]
-                                   , modImportedAs    :: String
+                                   , modImportedAs    :: Maybe String
                                    } deriving (Show)
 
 toHaskellModule :: SrcLoc.Located (GHC.ImportDecl GHC.RdrName) -> HaskellModule
@@ -65,7 +102,8 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           isImplicit = GHC.ideclImplicit idecl'
           qualifier  = unpackFS <$> GHC.ideclPkgQual idecl'
           hiding     = removeBrackets $ parseHiding $ GHC.ideclHiding idecl'
-          importedAs = showSDoc tracingDynFlags (ppr $ ideclAs idecl')
+          -- importedAs = showSDoc tracingDynFlags (ppr $ ideclAs idecl')
+          importedAs = ((showSDoc tracingDynFlags) . ppr) <$> (ideclAs idecl')
 
           removeBrackets :: [a] -> [a]
           removeBrackets [] = []
@@ -77,16 +115,14 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
 
           parseHiding :: Maybe (Bool, [Located (IE RdrName)]) -> [String]
           parseHiding Nothing = []
-          parseHiding (Just (False, _)) = error "This should not happen???"
+          parseHiding (Just (False, h)) = error "This should not happen?" -- "["FIXME THIS SHOULD NOT HAPPEN???"] ++ (map grabNames h)
           parseHiding (Just (True, h))  = map grabNames h
 
 lookupSymbol :: String -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
 lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
-        dflags <- getSessionDynFlags
-        let dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
-        setSessionDynFlags dflags' { hscTarget = HscInterpreted, ghcLink = LinkInMemory }
+        ourDynFlags <$> getSessionDynFlags >>= setSessionDynFlags
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -129,19 +165,18 @@ symbolImportedFrom occNameLookup = map importSpecModule whys
         _ = whys :: [ImportSpec] -- dummy binding so we can see that 'whys' has this type, just for documentation
 
 
--- http://stackoverflow.com/a/4978733
-
+-- This definition of separateBy is taken
+-- from: http://stackoverflow.com/a/4978733
 separateBy :: Eq a => a -> [a] -> [[a]]
 separateBy chr = unfoldr sep' where
   sep' [] = Nothing
   sep' l  = Just . fmap (drop 1) . break (==chr) $ l
 
-
 postfixMatch :: String -> String -> Bool
 postfixMatch originalSymbol qName = isPrefixOf (reverse endTerm) (reverse qName)
   where endTerm = last $ separateBy '.' originalSymbol
 
--- FIXME total hack, should deconstruct the name properly?
+-- FIXME Is there a way to deconstruct the name properly instead of this kludge?
 moduleOfQualifiedName :: String -> Maybe String
 moduleOfQualifiedName qn = if moduleBits == []
                                       then Nothing
@@ -230,6 +265,25 @@ moduleNameToHtmlFile m =  base' ++ ".html"
           f '.' = '-'
           f c   = c
 
+-- Check if our symbol is of the form X.foo and there is an "an" import like "import Blah.Blog as X"
+applyAsImport :: String -> HaskellModule -> Maybe String
+applyAsImport symbol hmod = cmpMod symbol hmod
+    where cmpMod symbol (HaskellModule name _ _ _ (Just impAs)) = if impAs `isPrefixOf` symbol
+                                                                      then Just $ commonPrefix symbol impAs
+                                                                      else Nothing
+          cmpMod symbol (HaskellModule name _ _ _ Nothing)      = Nothing
+
+          -- http://www.haskell.org/pipermail/beginners/2011-April/006856.html
+          commonPrefix :: Eq a => [a] -> [a] -> [a]
+          commonPrefix a b = map fst (takeWhile (uncurry (==)) (zip a b))
+ 
+-- FIXME assert length 1 as well?
+applyAsImport' symbol hmodules = case x'' of (Just (h, (Just cp))) -> Just $ (modName h) ++ (drop (length cp) symbol)
+                                             _              -> Nothing
+    where x = zip hmodules (map (applyAsImport symbol) hmodules)
+          x' = filter (isJust . snd) x
+          x'' = Safe.headMay x'
+
 
 main :: IO ()
 main = do
@@ -244,32 +298,49 @@ main = do
 
     importList <- (map (modName . toHaskellModule)) <$> getImports targetFile targetModule
 
-    -- importListRaw <- getImports targetFile targetModule
-    -- forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
-    -- putStrLn ""
+    importListRaw <- getImports targetFile targetModule
+    forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
+    putStrLn "############################################################"
+
+    -- importListRaw <- (map toHaskellModule) <$> getImports targetFile targetModule
+    -- forM_ importListRaw $ \x -> putStrLn $ "  " ++ (show x)
+    -- putStrLn "############################################################"
 
     qnames <- (filter (not . (' ' `elem`))) <$> qualifiedName targetFile targetModule lineNo colNo importList :: IO [String]
 
-    -- putStrLn "<qnames>"
-    -- forM_ qnames putStrLn
-    -- putStrLn "</qnames>"
-    -- putStrLn ""
+    putStrLn "<qnames>"
+    forM_ qnames putStrLn
+    putStrLn "</qnames>"
+    putStrLn ""
+
+    putStrLn "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    let aai = applyAsImport' symbol (map toHaskellModule importListRaw)
+    putStrLn $ "symbol: " ++ (show symbol)
+    putStrLn $ "importListRaw: " ++ (show $ map toHaskellModule importListRaw)
+    putStrLn $ "aai: " ++ (show aai)
+    putStrLn "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 
     let postMatches = filter (postfixMatch symbol) qnames :: [String]
 
-        symbol' = if postMatches == [] then symbol else minimumBy (compare `on` length) postMatches -- Flaky?
+        -- symbol' = if postMatches == [] then symbol else minimumBy (compare `on` length) postMatches -- Flaky?
+        symbol' = if isJust aai
+                    then fromJust aai
+                    else if postMatches == []
+                            then symbol
+                            else minimumBy (compare `on` length) postMatches -- Flaky?
 
-    -- putStrLn $ "symbol:  " ++ symbol
-    -- putStrLn $ "symbol': " ++ symbol'
+    putStrLn $ "symbol:  " ++ symbol
+    putStrLn $ "symbol': " ++ symbol'
 
 
     let maybeExtraModule = moduleOfQualifiedName symbol'
-
+        -- importList' = ["Prelude","System.IO.Strict","Data.Map","Data.ByteString.Lazy","Utils","S3Checksums","System.Process","System.IO","System.FilePath.Posix","System.Environment","System.Directory","Data.Maybe","Control.Proxy.Trans.Writer","Control.Proxy","Control.Monad.Trans.Writer.Lazy","Control.Monad.Reader","Control.Monad.Identity","Control.Monad","Control.Exception","Control.Applicative"]
         importList' = if symbol == symbol' then importList else importList ++ [fromJust maybeExtraModule]
 
     -- putStrLn $ "try to match on: " ++ (show (symbol, qnames))
     -- putStrLn $ "postMatches: " ++ (show postMatches)
-    -- putStrLn $ "importlist': " ++ (show importList')
+    putStrLn $ "importlist: " ++ (show importList)
+    putStrLn $ "importlist': " ++ (show importList')
 
     x <- lookupSymbol targetFile targetModule symbol' importList'
 

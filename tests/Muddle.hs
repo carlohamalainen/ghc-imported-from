@@ -4,6 +4,7 @@ module Muddle where
 
 import Data.Maybe
 import qualified Data.List as DL
+import qualified Data.Map as DM
 
 f :: a -> Maybe a
 f x = Just x
@@ -20,3 +21,5 @@ t = Just 100 :: Maybe Int
 r = DL.length [1, 2, 3]
 
 main = print "Hello, World!"
+
+h = DM.fromList [("x", "y")]
