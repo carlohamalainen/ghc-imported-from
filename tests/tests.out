@@ -1,0 +1,444 @@
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "Maybe"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  Maybe
+symbol': Maybe
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: Maybe
+inferred symbol: Maybe
+name: Data.Maybe.Maybe
+Just Data.Maybe
+["find-module","Data.Maybe","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+Data.Maybe.Just
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "Just"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  Just
+symbol': Data.Maybe.Just
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: Just
+inferred symbol: Data.Maybe.Just
+name: Data.Maybe.Just
+Just Data.Maybe
+["find-module","Data.Maybe","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "Just"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  Just
+symbol': Just
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: Just
+inferred symbol: Just
+name: Data.Maybe.Just
+Just Data.Maybe
+["find-module","Data.Maybe","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "String"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  String
+symbol': String
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: String
+inferred symbol: String
+name: GHC.Base.String
+Just Prelude
+["find-module","Prelude","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "Int"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  Int
+symbol': Int
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: Int
+inferred symbol: Int
+name: GHC.Types.Int
+Just Prelude
+["find-module","Prelude","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+GHC.List.length
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "DL.length"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Just "Data.List.length"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  DL.length
+symbol': Data.List.length
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe","Data.List"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: DL.length
+inferred symbol: Data.List.length
+name: GHC.List.length
+Just Data.List
+["find-module","Data.List","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+System.IO.print
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "print"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  print
+symbol': System.IO.print
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe","System.IO"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: print
+inferred symbol: System.IO.print
+name: System.IO.print
+Just Prelude
+["find-module","Prelude","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+Data.Map.Base.fromList
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "DM.fromList"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Just "Data.Map.fromList"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  DM.fromList
+symbol': Data.Map.fromList
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe","Data.Map"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: DM.fromList
+inferred symbol: Data.Map.fromList
+name: Data.Map.Base.fromList
+Just Data.Map
+["find-module","Data.Map","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Nothing
+"m':"
+Nothing
+haddock: 111FAIL111
+
+---------------------------------------------------------
+
+x:
+[]
+y:
+[]
+x:
+[]
+y:
+[]
+  import (implicit) Prelude
+  import qualified Safe
+  import qualified Data.Map as DM
+  import qualified Data.List as DL
+  import Data.Maybe
+############################################################
+x:
+[]
+y:
+[]
+<qnames>
+Safe.headMay
+</qnames>
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol: "Safe.headMay"
+importListRaw: [HaskellModule {modName = "Prelude", modQualifier = Nothing, modIsImplicit = True, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Safe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing},HaskellModule {modName = "Data.Map", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DM"},HaskellModule {modName = "Data.List", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Just "DL"},HaskellModule {modName = "Data.Maybe", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing}]
+aai: Nothing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+symbol:  Safe.headMay
+symbol': Safe.headMay
+importlist: ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+importlist': ["Prelude","Safe","Data.Map","Data.List","Data.Maybe"]
+x:
+[]
+y:
+[]
+file: Muddle.hs
+module: Muddle
+supplied symbol: Safe.headMay
+inferred symbol: Safe.headMay
+name: Safe.headMay
+Just Safe
+["find-module","Safe","--simple-output","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+["field","safe-0.3.3","haddock-html","--package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+"haddock:"
+Just "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html"
+"m':"
+Just "safe-0.3.3"
+haddock: /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html/Safe.html

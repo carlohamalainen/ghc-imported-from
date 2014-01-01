@@ -48,3 +48,9 @@ echo ""
 
 $bin Muddle.hs Muddle DM.fromList 26 5
 
+echo ""
+echo "---------------------------------------------------------"
+echo ""
+
+$bin Muddle.hs Muddle Safe.headMay 28 6
+
