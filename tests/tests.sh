@@ -4,47 +4,47 @@ bin="../.cabal-sandbox/bin/ghc-imported-from"
 
 # TODO Automate these. HUnit?
 
-$bin Muddle.hs Muddle Maybe       9 11
+$bin Muddle.hs Muddle Maybe       10 11
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle Just        10 7
+$bin Muddle.hs Muddle Just        11 7
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle Just        14 10
+$bin Muddle.hs Muddle Just        15 10
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle String      18 14
+$bin Muddle.hs Muddle String      19 14
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle Int         20 23
+$bin Muddle.hs Muddle Int         21 23
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle DL.length   21 5
+$bin Muddle.hs Muddle DL.length   22 5
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle print       23 8
+$bin Muddle.hs Muddle print       24 8
 
 echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Muddle.hs Muddle DM.fromList 25 5
+$bin Muddle.hs Muddle DM.fromList 26 5
 

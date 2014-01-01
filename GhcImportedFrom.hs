@@ -195,7 +195,7 @@ listifyStaged :: Typeable r => Stage -> (r -> Bool) -> GenericQ [r]
 listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 
 
--- qualifiedName :: String -> String -> Int -> Int -> [String] -> IO [String]
+qualifiedName :: String -> String -> Int -> Int -> [String] -> IO [String]
 qualifiedName targetFile targetModuleName lineNo colNo importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
@@ -265,25 +265,23 @@ moduleNameToHtmlFile m =  base' ++ ".html"
           f '.' = '-'
           f c   = c
 
--- Check if our symbol is of the form X.foo and there is an "an" import like "import Blah.Blog as X"
-applyAsImport :: String -> HaskellModule -> Maybe String
-applyAsImport symbol hmod = cmpMod symbol hmod
-    where cmpMod symbol (HaskellModule name _ _ _ (Just impAs)) = if impAs `isPrefixOf` symbol
-                                                                      then Just $ commonPrefix symbol impAs
-                                                                      else Nothing
-          cmpMod symbol (HaskellModule name _ _ _ Nothing)      = Nothing
+-- If symbol == "X.foo" and an element of hmodules is an import of the original form
+-- "import Y.Z as X" then we return Just "Y.Z.foo".
+-- 
+-- FIXME assert length 1 as well?
+expandMatchingAsImport :: String -> [HaskellModule] -> Maybe String
+expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just $ (modName h) ++ (drop (length cp) symbol)
+                                                   _                     -> Nothing
+    where x = Safe.headMay $ filter (isJust . snd) $ zip hmodules (map (cmpMod symbol) hmodules)
+
+          cmpMod s (HaskellModule _ _ _ _ (Just impAs)) = if impAs `isPrefixOf` s
+                                                               then Just $ commonPrefix s impAs
+                                                               else Nothing
+          cmpMod _ _ = Nothing
 
           -- http://www.haskell.org/pipermail/beginners/2011-April/006856.html
           commonPrefix :: Eq a => [a] -> [a] -> [a]
           commonPrefix a b = map fst (takeWhile (uncurry (==)) (zip a b))
- 
--- FIXME assert length 1 as well?
-applyAsImport' symbol hmodules = case x'' of (Just (h, (Just cp))) -> Just $ (modName h) ++ (drop (length cp) symbol)
-                                             _              -> Nothing
-    where x = zip hmodules (map (applyAsImport symbol) hmodules)
-          x' = filter (isJust . snd) x
-          x'' = Safe.headMay x'
-
 
 main :: IO ()
 main = do
@@ -314,7 +312,7 @@ main = do
     putStrLn ""
 
     putStrLn "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-    let aai = applyAsImport' symbol (map toHaskellModule importListRaw)
+    let aai = expandMatchingAsImport symbol (map toHaskellModule importListRaw)
     putStrLn $ "symbol: " ++ (show symbol)
     putStrLn $ "importListRaw: " ++ (show $ map toHaskellModule importListRaw)
     putStrLn $ "aai: " ++ (show aai)
@@ -334,7 +332,6 @@ main = do
 
 
     let maybeExtraModule = moduleOfQualifiedName symbol'
-        -- importList' = ["Prelude","System.IO.Strict","Data.Map","Data.ByteString.Lazy","Utils","S3Checksums","System.Process","System.IO","System.FilePath.Posix","System.Environment","System.Directory","Data.Maybe","Control.Proxy.Trans.Writer","Control.Proxy","Control.Monad.Trans.Writer.Lazy","Control.Monad.Reader","Control.Monad.Identity","Control.Monad","Control.Exception","Control.Applicative"]
         importList' = if symbol == symbol' then importList else importList ++ [fromJust maybeExtraModule]
 
     -- putStrLn $ "try to match on: " ++ (show (symbol, qnames))
@@ -348,9 +345,10 @@ main = do
                                     putStrLn $ "module: " ++ targetModule
                                     putStrLn $ "supplied symbol: " ++ symbol
                                     putStrLn $ "inferred symbol: " ++ symbol'
+                                    putStrLn $ "name: " ++ (showSDoc tracingDynFlags (ppr name))
                                     -- putStrLn $ "imports: " ++ (show importList')
 
-                                    let definedIn = symbolDefinedIn name
+                                    let -- definedIn = symbolDefinedIn name
                                         importedFrom = Safe.headMay $ concat $ map symbolImportedFrom lookUp
 
                                     putStrLn $ showSDoc tracingDynFlags (ppr $ importedFrom)

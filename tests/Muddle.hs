@@ -5,6 +5,7 @@ module Muddle where
 import Data.Maybe
 import qualified Data.List as DL
 import qualified Data.Map as DM
+import qualified Safe
 
 f :: a -> Maybe a
 f x = Just x
