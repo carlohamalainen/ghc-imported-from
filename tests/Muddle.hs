@@ -24,3 +24,5 @@ r = DL.length [1, 2, 3]
 main = print "Hello, World!"
 
 h = DM.fromList [("x", "y")]
+
+sh = Safe.headMay []

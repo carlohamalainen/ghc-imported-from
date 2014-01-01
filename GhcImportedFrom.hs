@@ -36,6 +36,9 @@ import System.IO
 import System.Process
 import TcRnTypes()
 
+import qualified DynFlags
+import qualified GhcMonad
+import qualified Packages
 import qualified SrcLoc
 import qualified Safe
 
@@ -48,32 +51,57 @@ TODO
     ghc-pkg --package-db ./.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d field safe haddock-html
     haddock-html: /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html
 
-
 -}
 
+-- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
+-- at http://www.vex.net/~trebla/haskell/sicp.xhtml
+myOptsTmp  = ["-package-db  /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+myOptsTmp' = ["--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
 
+ourDynFlags dflags0 = do
+    let argv0 = myOptsTmp
+
+    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
+        dflags2 = dflags1 { hscTarget = HscInterpreted
+                          , ghcLink = LinkInMemory
+                          }
+
+    (dflags3, x, y) <- GHC.parseDynamicFlags dflags2 (map SrcLoc.noLoc argv0) -- FIXME check for errors/warnings?
+
+    GhcMonad.liftIO $ putStrLn $ "x:"
+    GhcMonad.liftIO $ putStrLn $ showSDoc tracingDynFlags (ppr $ x)
+    GhcMonad.liftIO $ putStrLn $ "y:"
+    GhcMonad.liftIO $ putStrLn $ showSDoc tracingDynFlags (ppr $ y)
+
+
+    return (dflags3, x, y)
+
+{-
 ourDynFlags :: DynFlags -> DynFlags
 ourDynFlags dflags = dflags' { hscTarget = HscInterpreted
                              , ghcLink = LinkInMemory
                              -- , packageFlags = pf
-                             -- , extraPkgConfs = (myPackage:) . extraPkgConfs dflags
+                             , extraPkgConfs = (myPackage:) . extraPkgConfs dflags
                              }
     where dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
           -- FIXME Do we need Opt_ImplicitPrelude? Maybe we should check
           -- if the targetFile has an implicit prelude option set?
-          -- myPackage = PkgConfFile "/home/carlo/work/github/checker/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+          myPackage = PkgConfFile "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
           -- pf = (ExposePackage "containers-0.5.0.0"):(packageFlags dflags)
 
 -- dynflags {
 --         includePaths = otherincludes ++ includePaths dynflags,
 --         packageFlags = [ExposePackage "ghc"]} }
-
+-}
 
 getImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
 getImports targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
         runGhc (Just libdir) $ do
-            ourDynFlags <$> getSessionDynFlags >>= setSessionDynFlags
+            dflags <- getSessionDynFlags
+            (dflags', x, y) <- ourDynFlags dflags
+            setSessionDynFlags dflags'
+            GhcMonad.liftIO $ Packages.initPackages dflags'
 
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
@@ -122,7 +150,10 @@ lookupSymbol :: String -> String -> String -> [String] -> IO [(Name, [GlobalRdrE
 lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
-        ourDynFlags <$> getSessionDynFlags >>= setSessionDynFlags
+        dflags <- getSessionDynFlags
+        (dflags', x, y) <- ourDynFlags dflags
+        setSessionDynFlags dflags'
+        GhcMonad.liftIO $ Packages.initPackages dflags'
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -200,8 +231,9 @@ qualifiedName targetFile targetModuleName lineNo colNo importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
         dflags <- getSessionDynFlags
-        let dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
-        setSessionDynFlags dflags' { hscTarget = HscInterpreted, ghcLink = LinkInMemory }
+        (dflags', x, y) <- ourDynFlags dflags
+        setSessionDynFlags dflags'
+        GhcMonad.liftIO $ Packages.initPackages dflags'
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -239,20 +271,26 @@ ghcPkgFindModule m = do
 
     let m' = showSDoc tracingDynFlags (ppr $ m)
 
-    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" ["find-module", m', "--simple-output"]){ std_in = CreatePipe
-                                                                                                 , std_out = CreatePipe
-                                                                                                 , std_err = CreatePipe
-                                                                                                 }
+    let opts = ["find-module", m', "--simple-output"] ++ myOptsTmp' 
+    print opts
+
+    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
+                                                               , std_out = CreatePipe
+                                                               , std_err = CreatePipe
+                                                               }
 
     output <- readRestOfHandle hout
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 ghcPkgHaddockUrl :: String -> IO (Maybe String)
 ghcPkgHaddockUrl p = do
-    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" ["field", p, "haddock-html"]){ std_in = CreatePipe
-                                                                                       , std_out = CreatePipe
-                                                                                       , std_err = CreatePipe
-                                                                                       }
+    let opts = ["field", p, "haddock-html"] ++ myOptsTmp' 
+    print opts
+
+    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
+                                                               , std_out = CreatePipe
+                                                               , std_err = CreatePipe
+                                                               }
 
     line <- (reverse . (dropWhile (== '\n')) . reverse) <$> readRestOfHandle hout
 
@@ -361,6 +399,11 @@ main = do
 
                                     haddock <- maybe (return Nothing) ghcPkgHaddockUrl m'
 
+                                    print "haddock:"
+                                    print haddock
+                                    print "m':"
+                                    print m'
+
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
                                         else putStrLn $ "haddock: " ++ (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
@@ -370,3 +413,5 @@ main = do
                                     -- if importedFrom == []
                                     --     then putStrLn $ "imported from: 000FAIL000"
                                     --     else putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ head $ importedFrom))
+
+
