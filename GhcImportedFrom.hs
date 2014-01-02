@@ -38,6 +38,7 @@ import TcRnTypes()
 
 import qualified DynFlags
 import qualified GhcMonad
+import qualified MonadUtils
 import qualified Packages
 import qualified SrcLoc
 import qualified Safe
@@ -55,53 +56,36 @@ TODO
 
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
-myOptsTmp  = ["-package-db  /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
-myOptsTmp' = ["--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+myOptsTmp  = [ "-package-db  /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
 
-ourDynFlags dflags0 = do
+myOptsTmp' = [ "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+             , "--global"
+             ]
+
+data GhcOptions = GhcOptions [String] deriving (Show)
+
+-- setDynamicFlags :: GhcMonad m => GhcOptions -> m DynFlags
+setDynamicFlags ghcOpts dflags0 = do
     let argv0 = myOptsTmp
 
-    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
+    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash] -- What if the user does not want an implicit prelude?
         dflags2 = dflags1 { hscTarget = HscInterpreted
                           , ghcLink = LinkInMemory
                           }
 
-    (dflags3, x, y) <- GHC.parseDynamicFlags dflags2 (map SrcLoc.noLoc argv0) -- FIXME check for errors/warnings?
+    (dflags3, _, _) <- GHC.parseDynamicFlags dflags2 (map SrcLoc.noLoc argv0) -- FIXME check for errors/warnings?
 
-    GhcMonad.liftIO $ putStrLn $ "x:"
-    GhcMonad.liftIO $ putStrLn $ showSDoc tracingDynFlags (ppr $ x)
-    GhcMonad.liftIO $ putStrLn $ "y:"
-    GhcMonad.liftIO $ putStrLn $ showSDoc tracingDynFlags (ppr $ y)
+    setSessionDynFlags dflags3
 
+    GhcMonad.liftIO $ Packages.initPackages dflags3
 
-    return (dflags3, x, y)
-
-{-
-ourDynFlags :: DynFlags -> DynFlags
-ourDynFlags dflags = dflags' { hscTarget = HscInterpreted
-                             , ghcLink = LinkInMemory
-                             -- , packageFlags = pf
-                             , extraPkgConfs = (myPackage:) . extraPkgConfs dflags
-                             }
-    where dflags' = foldl xopt_set dflags [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash]
-          -- FIXME Do we need Opt_ImplicitPrelude? Maybe we should check
-          -- if the targetFile has an implicit prelude option set?
-          myPackage = PkgConfFile "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-          -- pf = (ExposePackage "containers-0.5.0.0"):(packageFlags dflags)
-
--- dynflags {
---         includePaths = otherincludes ++ includePaths dynflags,
---         packageFlags = [ExposePackage "ghc"]} }
--}
+    return dflags3
 
 getImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
 getImports targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
         runGhc (Just libdir) $ do
-            dflags <- getSessionDynFlags
-            (dflags', x, y) <- ourDynFlags dflags
-            setSessionDynFlags dflags'
-            GhcMonad.liftIO $ Packages.initPackages dflags'
+            getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
 
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
@@ -150,10 +134,7 @@ lookupSymbol :: String -> String -> String -> [String] -> IO [(Name, [GlobalRdrE
 lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
-        dflags <- getSessionDynFlags
-        (dflags', x, y) <- ourDynFlags dflags
-        setSessionDynFlags dflags'
-        GhcMonad.liftIO $ Packages.initPackages dflags'
+        getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -230,10 +211,7 @@ qualifiedName :: String -> String -> Int -> Int -> [String] -> IO [String]
 qualifiedName targetFile targetModuleName lineNo colNo importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
-        dflags <- getSessionDynFlags
-        (dflags', x, y) <- ourDynFlags dflags
-        setSessionDynFlags dflags'
-        GhcMonad.liftIO $ Packages.initPackages dflags'
+        getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -413,5 +391,4 @@ main = do
                                     -- if importedFrom == []
                                     --     then putStrLn $ "imported from: 000FAIL000"
                                     --     else putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ head $ importedFrom))
-
 
