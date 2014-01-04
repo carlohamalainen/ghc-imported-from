@@ -58,4 +58,10 @@ echo ""
 echo "---------------------------------------------------------"
 echo ""
 
-$bin Hiding.hs Hiding head 12 5
+$bin Hiding.hs Hiding map           12 5
+
+echo ""
+echo "---------------------------------------------------------"
+echo ""
+
+$bin Hiding.hs Hiding head          12 5
