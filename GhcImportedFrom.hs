@@ -113,7 +113,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           name       = showSDoc tracingDynFlags (ppr $ GHC.ideclName $ idecl')
           isImplicit = GHC.ideclImplicit idecl'
           qualifier  = unpackFS <$> GHC.ideclPkgQual idecl'
-          hiding     = removeBrackets $ parseHiding $ GHC.ideclHiding idecl'
+          hiding     = map removeBrackets $ (catMaybes . parseHiding . GHC.ideclHiding) idecl'
           -- importedAs = showSDoc tracingDynFlags (ppr $ ideclAs idecl')
           importedAs = ((showSDoc tracingDynFlags) . ppr) <$> (ideclAs idecl')
 
@@ -125,10 +125,10 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           grabNames loc = showSDoc tracingDynFlags (ppr names)
             where names = GHC.ieNames $ SrcLoc.unLoc loc
 
-          parseHiding :: Maybe (Bool, [Located (IE RdrName)]) -> [String]
-          parseHiding Nothing = []
+          parseHiding :: Maybe (Bool, [Located (IE RdrName)]) -> [Maybe String]
+          parseHiding Nothing = [Nothing]
           parseHiding (Just (False, h)) = error "This should not happen?" -- "["FIXME THIS SHOULD NOT HAPPEN???"] ++ (map grabNames h)
-          parseHiding (Just (True, h))  = map grabNames h
+          parseHiding (Just (True, h))  = map (Just . grabNames) h
 
 lookupSymbol :: String -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
 lookupSymbol targetFile targetModuleName qualifiedSymbol importList =

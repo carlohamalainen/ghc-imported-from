@@ -6,6 +6,7 @@ import Data.Maybe
 import qualified Data.List as DL
 import qualified Data.Map as DM
 import qualified Safe
+-- import Data.List hiding (map)
 
 f :: a -> Maybe a
 f x = Just x
@@ -26,3 +27,4 @@ main = print "Hello, World!"
 h = DM.fromList [("x", "y")]
 
 sh = Safe.headMay []
+
