@@ -56,11 +56,16 @@ TODO
 
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
-myOptsTmp  = [ "-package-db  /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
 
-myOptsTmp' = [ "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-             , "--global"
-             ]
+derps = [ "/home/carlo/work/github/checker/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+        , "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+        , "/home/carlo/work/github/camera-scripts/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+        , "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+        ]
+
+myOptsTmp  = map ("-package-db  " ++) derps
+
+myOptsTmp' = map ("--package-db " ++) derps ++ ["--global"]
 
 data GhcOptions = GhcOptions [String] deriving (Show)
 
@@ -384,7 +389,7 @@ main = do
 
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
-                                        else putStrLn $ "haddock: " ++ (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
+                                        else putStrLn $ "SUCCESS: " ++ (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
 
                                     -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
 
