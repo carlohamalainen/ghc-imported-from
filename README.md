@@ -1,7 +1,17 @@
 ghc-imported-from
 =================
 
-For a given Haskell source file, determine where a symbol is imported from.
+For a given Haskell source file, determine the path to the Haddock documentation for a symbol at a particular line/col location.
+
+Example: on the file [Muddle.hs](https://github.com/carlohamalainen/ghc-imported-from/blob/master/tests/Muddle.hs),
+
+    ../.cabal-sandbox/bin/ghc-imported-from Muddle.hs Muddle Maybe 11 11
+
+says
+
+    SUCCESS: /home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
+
+since the usage of ```Maybe``` at line 11, column 11, is from the ```Data.Maybe``` module.
 
 ## Install
 
@@ -13,7 +23,7 @@ First install prerequisites, following instructions at
 Then install the forked version:
 
     cd ~/.vim/bundle/
-    git clone https://github.com/eagletmt/ghcmod-vim.git
+    git clone https://github.com/carlohamalainen/ghcmod-vim/blob/master/README.md
     cd
 
 Optionally, add a symlink so that it works with .lhs files as well:
