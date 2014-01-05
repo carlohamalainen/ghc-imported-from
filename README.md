@@ -13,6 +13,15 @@ says
 
 since the usage of ```Maybe``` at line 11, column 11, is from the ```Data.Maybe``` module.
 
+Difficulties arise because some symbols are exported from a certain
+package but defined in another, for example ```String``` is defined in
+```GHC.Base``` but is exported from the standard prelude, the module
+```Prelude```. There are other cases to deal with including qualified
+imports, selective imports, imports with hidden components, etc.
+
+Preference is given to any locally available Haddock documentation,
+and then to the generic url at hackage.org.
+
 ## Install
 
 ### ghcmod-vim (forked)
