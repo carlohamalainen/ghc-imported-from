@@ -3,8 +3,8 @@
 module Hiding where
 
 import Data.List hiding (map)
-
-
+import System.Environment (getArgs)
+import qualified Safe
 
 
 
@@ -14,3 +14,6 @@ import Data.List hiding (map)
 m = map (+1) [1, 2, 3]
 
 h = head [1, 2, 3]
+
+h' = Safe.headMay []
+
