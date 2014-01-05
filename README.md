@@ -73,5 +73,9 @@ Or to make F4 open the documentation in the systems's default browser:
 
 See the ```tests``` subdirectory for some examples. Or load your favourite Haskell project and hit F4.
 
+## Beware
+
+If you use Cabal sandboxes, you'll have to hardcode the path to the package config file. This is a known issue: [https://github.com/carlohamalainen/ghc-imported-from/issues/3](https://github.com/carlohamalainen/ghc-imported-from/issues/3)
+
 Feedback and pull requests most welcome!
 
