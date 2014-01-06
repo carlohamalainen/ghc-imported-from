@@ -32,7 +32,7 @@ First install prerequisites, following instructions at
 Then install the forked version:
 
     cd ~/.vim/bundle/
-    git clone https://github.com/carlohamalainen/ghcmod-vim/blob/master/README.md
+    git clone https://github.com/carlohamalainen/ghcmod-vim
     cd
 
 Optionally, add a symlink so that it works with .lhs files as well:
