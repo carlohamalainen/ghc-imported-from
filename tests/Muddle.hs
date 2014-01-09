@@ -28,3 +28,6 @@ h = DM.fromList [("x", "y")]
 
 sh = Safe.headMay []
 
+i = 3 :: Int
+i' = 3 :: Integer
+

@@ -31,6 +31,7 @@ import HscTypes
 import Name
 import Outputable
 import RdrName
+import System.Directory
 import System.Environment
 import System.IO
 import System.Process
@@ -57,14 +58,13 @@ TODO
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
 
-derps = [ "/home/carlo/work/github/checker/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-        , "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-        , "/home/carlo/work/github/camera-scripts/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-        -- , "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
-        ]
+derps = [ "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
 
-myOptsTmp  = map ("-package-db  " ++) derps
+-- for GHC API
+-- myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
+myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
 
+-- for ghc-pkg
 myOptsTmp' = ["--global"] ++ (concat $ map (\x -> ["--package-db", x]) derps)
 
 data GhcOptions = GhcOptions [String] deriving (Show)
@@ -73,7 +73,7 @@ data GhcOptions = GhcOptions [String] deriving (Show)
 setDynamicFlags ghcOpts dflags0 = do
     let argv0 = myOptsTmp
 
-    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash] -- What if the user does not want an implicit prelude?
+    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_MagicHash, Opt_TemplateHaskell, Opt_QuasiQuotes, Opt_OverloadedStrings, Opt_TypeFamilies, Opt_FlexibleContexts, Opt_GADTs, Opt_MultiParamTypeClasses] -- What if the user does not want an implicit prelude?
         dflags2 = dflags1 { hscTarget = HscInterpreted
                           , ghcLink = LinkInMemory
                           }
@@ -92,16 +92,26 @@ getImports targetFile targetModuleName =
         runGhc (Just libdir) $ do
             getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
 
+            GhcMonad.liftIO $ print "getImports1"
+
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
+            GhcMonad.liftIO $ print "getImports1a"
             setTargets [target]
+            GhcMonad.liftIO $ print "getImports1b"
             load LoadAllTargets
+
+            GhcMonad.liftIO $ print "getImports2"
 
             -- Set the context by loading the module, e.g. "Muddle" which is in "Muddle.hs".
             setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName]
 
+            GhcMonad.liftIO $ print "getImports2"
+
             -- Extract the module summary and the *textual* imports.
             modSum <- getModSummary $ mkModuleName targetModuleName
+
+            GhcMonad.liftIO $ print "getImports2"
 
             return $ ms_textual_imps modSum
 
@@ -273,7 +283,7 @@ ghcPkgFindModule m = do
 
     let m' = showSDoc tracingDynFlags (ppr $ m)
 
-    let opts = ["find-module", m', "--simple-output"] ++ myOptsTmp' 
+    let opts = ["find-module", m', "--simple-output"] ++ myOptsTmp'
     putStrLn $ "ghc-pkg " ++ (unwords opts)
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
@@ -290,7 +300,7 @@ ghcPkgFindModule m = do
 
 ghcPkgHaddockUrl :: String -> IO (Maybe String)
 ghcPkgHaddockUrl p = do
-    let opts = ["field", p, "haddock-html"] ++ myOptsTmp' 
+    let opts = ["field", p, "haddock-html"] ++ myOptsTmp'
     print opts
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
@@ -311,7 +321,7 @@ moduleNameToHtmlFile m =  base' ++ ".html"
 
 -- If symbol == "X.foo" and an element of hmodules is an import of the original form
 -- "import Y.Z as X" then we return Just "Y.Z.foo".
--- 
+--
 -- FIXME assert length 1 as well?
 expandMatchingAsImport :: String -> [HaskellModule] -> Maybe String
 expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just $ (modName h) ++ (drop (length cp) symbol)
@@ -330,6 +340,18 @@ expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just
 specificallyMatches :: String -> [HaskellModule] -> [HaskellModule]
 specificallyMatches symbol importList = filter (\h -> symbol `elem` modSpecifically h) importList
 
+toHackageUrl :: String -> String -> String
+toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f'
+    where x = fromJust $ substringP m f -- FIXME brittle use of fromJust
+          f' = drop x f
+
+          -- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
+          substringP :: String -> String -> Maybe Int
+          substringP _ []  = Nothing
+          substringP sub str = case isPrefixOf sub str of
+            False -> fmap (+1) $ substringP sub (tail str)
+            True  -> Just 0
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -342,6 +364,7 @@ main = do
         colNo          = (read $ args !! 4) :: Int
 
     importList <- (map (modName . toHaskellModule)) <$> getImports targetFile targetModule
+    forM_ importList $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
 
     importListRaw <- getImports targetFile targetModule
     forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
@@ -428,8 +451,11 @@ main = do
 
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
-                                        else putStrLn $ "SUCCESS: " ++ (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
+                                        else do let f = (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
+                                                e <- doesFileExist f
 
+                                                if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
+                                                     else putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m'))
                                     -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
 
                                     -- if importedFrom == []

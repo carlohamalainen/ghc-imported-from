@@ -27,6 +27,7 @@ executable ghc-imported-from
                , ghc-syb-utils
                , safe
                , process
+               , directory
                , containers >= 0.5.0.0 && <= 0.5.0.0
                , mtl
                , transformers
