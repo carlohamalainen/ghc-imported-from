@@ -469,8 +469,7 @@ main = do
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
                                         else do let f = (fromJust haddock) </> (fromJust base)
-                                                -- e <- doesFileExist f
-                                                let e = False
+                                                e <- doesFileExist f
 
                                                 if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
                                                      else do putStrLn $ "f:  " ++ (show f)
