@@ -62,7 +62,7 @@ derps = [] -- [ "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_
 
 -- for GHC API
 -- myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
-myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
+myOptsTmp  = [] -- ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
 
 -- for ghc-pkg
 myOptsTmp' = ["--global"] ++ (concat $ map (\x -> ["--package-db", x]) derps)
