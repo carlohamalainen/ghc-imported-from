@@ -59,13 +59,14 @@ TODO
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
 
-derps = [] -- [ "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
-
--- for GHC API
+-- with my cli yesod blog in a sandbox:
+-- derps = [ "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
 -- myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
-myOptsTmp  = ["-global"] -- ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
+-- myOptsTmp' = ["--global"] ++ (concat $ map (\x -> ["--package-db", x]) derps)
 
--- for ghc-pkg
+-- with a "cabal install" installation of ghc-imported-from:
+derps = []
+myOptsTmp  = ["-global"]
 myOptsTmp' = (concat $ map (\x -> ["--package-db", x]) derps)
 
 data GhcOptions = GhcOptions [String] deriving (Show)
@@ -344,26 +345,29 @@ specificallyMatches symbol importList = filter (\h -> symbol `elem` modSpecifica
 -- f = "Platform\\\\2013.2.0.0\\\\lib/../doc/html/libraries/base-4.6.0.1\\Control-Monad.html"
 -- m = "base-4.6.0.1"
 
+-- f = "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html/Safe.html"
+-- m = "safe-0.3.3"
+
+_filepath = "/home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Prelude.html"
+_package = "base-4.6.0.1"
+_modulename = "Prelude"
+
 -- Should parse this properly...
-toHackageUrl :: String -> String -> String
-toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f''''
-    where x = fromJust $ substringP m f -- FIXME brittle use of fromJust
-          f' = drop x f        -- e.g. "base-4.6.0.1\\Control-Monad.html"
-          f'' = map repl f'    -- e.g. "base-4.6.0.1/Control-Monad.html"
-
-          f''' = drop (1 + length m) f''  -- e.g. "Control-Monad.html"
-
-          f'''' = m ++ "/" ++ "docs" ++ "/" ++ f'''
+toHackageUrl :: String -> String -> String -> String
+toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/" ++ package ++ "/" ++ "docs/" ++ modulename''
+    where filepath' = map repl filepath
+          modulename' = head $ separateBy '.' $ head $ separateBy '-' modulename
+          modulename'' = drop (fromJust $ substringP modulename' filepath') filepath'
 
           repl '\\' = '/'
           repl c    = c
 
--- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
-substringP :: String -> String -> Maybe Int
-substringP _ []  = Nothing
-substringP sub str = case isPrefixOf sub str of
-    False -> fmap (+1) $ substringP sub (tail str)
-    True  -> Just 0
+          -- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
+          substringP :: String -> String -> Maybe Int
+          substringP _ []  = Nothing
+          substringP sub str = case isPrefixOf sub str of
+            False -> fmap (+1) $ substringP sub (tail str)
+            True  -> Just 0
 
 main :: IO ()
 main = do
@@ -465,12 +469,14 @@ main = do
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
                                         else do let f = (fromJust haddock) </> (fromJust base)
-                                                e <- doesFileExist f
+                                                -- e <- doesFileExist f
+                                                let e = False
 
                                                 if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
                                                      else do putStrLn $ "f:  " ++ (show f)
                                                              putStrLn $ "m': " ++ (show (fromJust m'))
-                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m'))
+                                                             putStrLn $ "pack: " ++ (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom))
+                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m') (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom)))
                                     -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
 
                                     -- if importedFrom == []
