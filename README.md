@@ -22,7 +22,7 @@ imports, selective imports, imports with hidden components, etc.
 Preference is given to any locally available Haddock documentation,
 and then to the generic url at hackage.org.
 
-## Install - Linux
+## Install
 
 ### ghc-imported-from
 
@@ -45,57 +45,6 @@ Either way, ensure that ```ghc-imported-from``` is in the current PATH.
 Follow the instructions at
 [https://github.com/carlohamalainen/ghcimportedfrom-vim](https://github.com/carlohamalainen/ghcimportedfrom-vim)
 to install the Vim plugin.
-
-## Install - Windows
-
-Tested on Windows 7 64bit.
-
-Install the following components:
-
-* [Haskell Platform 2013](http://www.haskell.org/platform/windows.html)
-* [GIT](http://git-scm.com/download/win)
-* [MingW](http://sourceforge.net/projects/mingw/files/)  (then install all dev tools in the "Basic" tab)
-* [Vim](http://www.vim.org/download.php)
-
-Then using a Git Bash shell:
-
-    cd $HOME
-    mkdir -p ~/vimfiles/autoload ~/vimfiles/bundle
-    curl -Sso ~/vimfiles/autoload/pathogen.vim https://raw.github.com/tpope/vim-pathogen/master/autoload/pathogen.vim
-
-### vimproc:
-
-    git clone https://github.com/Shougo/vimproc.vim.git ~/vimfiles/bundle/vimproc.vim
-    cd ~/vimfiles/bundle/vimproc.vim
-    /c/MinGW/bin/mingw32-make.exe -f make_mingw32.mak
-    cd
-
-### ghc-imported-from
-
-    git clone https://github.com/carlohamalainen/ghc-imported-from
-    cd ghc-imported-from
-    cabal install
-    cd -
-
-### ghcimportedfrom-vim
-
-    git clone https://github.com/carlohamalainen/ghcimportedfrom-vim ~/vimfiles/bundle/ghcimportedfrom-vim
-
-### vimrc
-
-Make sure that it looks like this:
-
-    $ cat $HOME/.vimrc
-
-    execute pathogen#infect()
-    syntax on
-    filetype plugin indent on
-
-    au FileType haskell  nnoremap <buffer> <F4> :GhcImportedFromOpenHaddock<CR>
-    au FileType lhaskell nnoremap <buffer> <F4> :GhcImportedFromOpenHaddock<CR>
-
-    au FileType haskell  nnoremap <buffer> <F5> :GhcImportedFromEchoUrl<CR>
-    au FileType lhaskell nnoremap <buffer> <F5> :GhcImportedFromEchoUrl<CR>
 
 ## Usage
 
