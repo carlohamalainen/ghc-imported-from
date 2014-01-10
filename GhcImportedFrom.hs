@@ -33,6 +33,7 @@ import Outputable
 import RdrName
 import System.Directory
 import System.Environment
+import System.FilePath
 import System.IO
 import System.Process
 import TcRnTypes()
@@ -341,9 +342,13 @@ specificallyMatches :: String -> [HaskellModule] -> [HaskellModule]
 specificallyMatches symbol importList = filter (\h -> symbol `elem` modSpecifically h) importList
 
 toHackageUrl :: String -> String -> String
-toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f'
+toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f''
     where x = fromJust $ substringP m f -- FIXME brittle use of fromJust
           f' = drop x f
+          f'' = map repl f'
+
+          repl '\\' = '/'
+          repl c    = c
 
           -- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
           substringP :: String -> String -> Maybe Int
@@ -442,7 +447,7 @@ main = do
 
                                     let base = moduleNameToHtmlFile <$> importedFrom
 
-                                    haddock <- maybe (return Nothing) ghcPkgHaddockUrl m'
+                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) ghcPkgHaddockUrl m'
 
                                     print "haddock:"
                                     print haddock
@@ -451,7 +456,7 @@ main = do
 
                                     if isNothing haddock || isNothing m'
                                         then putStrLn $ "haddock: 111FAIL111"
-                                        else do let f = (fromJust haddock) ++ "/" ++ (fromJust base) -- FIXME path separator on Windows?
+                                        else do let f = (fromJust haddock) </> (fromJust base)
                                                 e <- doesFileExist f
 
                                                 if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
