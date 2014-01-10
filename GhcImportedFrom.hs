@@ -58,7 +58,7 @@ TODO
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
 
-derps = [ "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
+derps = [] -- [ "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
 
 -- for GHC API
 -- myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
