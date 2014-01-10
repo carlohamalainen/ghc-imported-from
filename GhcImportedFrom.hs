@@ -341,21 +341,29 @@ expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just
 specificallyMatches :: String -> [HaskellModule] -> [HaskellModule]
 specificallyMatches symbol importList = filter (\h -> symbol `elem` modSpecifically h) importList
 
+-- f = "Platform\\\\2013.2.0.0\\\\lib/../doc/html/libraries/base-4.6.0.1\\Control-Monad.html"
+-- m = "base-4.6.0.1"
+
+-- Should parse this properly...
 toHackageUrl :: String -> String -> String
-toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f''
+toHackageUrl f m = "https://hackage.haskell.org/package/" ++ f''''
     where x = fromJust $ substringP m f -- FIXME brittle use of fromJust
-          f' = drop x f
-          f'' = map repl f'
+          f' = drop x f        -- e.g. "base-4.6.0.1\\Control-Monad.html"
+          f'' = map repl f'    -- e.g. "base-4.6.0.1/Control-Monad.html"
+
+          f''' = drop (1 + length m) f''  -- e.g. "Control-Monad.html"
+
+          f'''' = m ++ "/" ++ "docs" ++ "/" ++ f'''
 
           repl '\\' = '/'
           repl c    = c
 
-          -- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
-          substringP :: String -> String -> Maybe Int
-          substringP _ []  = Nothing
-          substringP sub str = case isPrefixOf sub str of
-            False -> fmap (+1) $ substringP sub (tail str)
-            True  -> Just 0
+-- http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
+substringP :: String -> String -> Maybe Int
+substringP _ []  = Nothing
+substringP sub str = case isPrefixOf sub str of
+    False -> fmap (+1) $ substringP sub (tail str)
+    True  -> Just 0
 
 main :: IO ()
 main = do
@@ -460,7 +468,9 @@ main = do
                                                 e <- doesFileExist f
 
                                                 if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
-                                                     else putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m'))
+                                                     else do putStrLn $ "f:  " ++ (show f)
+                                                             putStrLn $ "m': " ++ (show (fromJust m'))
+                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m'))
                                     -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
 
                                     -- if importedFrom == []
