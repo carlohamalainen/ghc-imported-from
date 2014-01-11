@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-
 
@@ -12,6 +13,23 @@ See the tests directory for some example usage.
 Author: Carlo Hamalainen <carlo@carlo-hamalainen.net>
 
 -}
+
+module GhcImportedFrom ( QualifiedName
+                       , Symbol
+                       , GhcOptions (..)
+                       , HaskellModule (..)
+                       , setDynamicFlags
+                       , getTextualImports
+                       , toHaskellModule
+                       , symbolDefinedIn
+                       , symbolImportedFrom
+                       , postfixMatch
+                       , moduleOfQualifiedName
+                       , qualifiedName
+                       , ghcPkgFindModule
+                       , ghcPkgHaddockUrl
+                       , moduleNameToHtmlFile
+                       ) where
 
 import Control.Applicative
 import Control.Monad
@@ -69,13 +87,42 @@ derps = []
 myOptsTmp  = ["-global"]
 myOptsTmp' = (concat $ map (\x -> ["--package-db", x]) derps)
 
-data GhcOptions = GhcOptions [String] deriving (Show)
+type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
--- setDynamicFlags :: GhcMonad m => GhcOptions -> m DynFlags
+type Symbol = String -- ^ A symbol, possibly qualified, e.g. "bar" or "Foo.bar".
+
+data GhcOptions
+    -- | List of user-supplied GHC options, e.g. ["--global", "--no-user-package"].
+    = GhcOptions [String] deriving (Show)
+
+data HaskellModule
+    -- | Information about an import of a Haskell module.
+    = HaskellModule { modName           :: String
+                    , modQualifier      :: Maybe String
+                    , modIsImplicit     :: Bool
+                    , modHiding         :: [String]
+                    , modImportedAs     :: Maybe String
+                    , modSpecifically   :: [String]
+                    } deriving (Show, Eq)
+
+-- |Set GHC options and run 'Packages.initPackages' in the 'GhcMonad'.
+--
+-- Typical use:
+--
+-- > defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
+-- >    runGhc (Just libdir) $ do
+-- >        getSessionDynFlags >>= setDynamicFlags (GhcOptions myGhcOptionList)
+-- >        -- do stuff
+setDynamicFlags :: GhcOptions -> DynFlags -> Ghc DynFlags
 setDynamicFlags ghcOpts dflags0 = do
+    -- FIXME actually use ghcOpts, not myOptsTmp!
+    -- FIXME parse the language options like Opt_TemplateHaskell from the source file.
     let argv0 = myOptsTmp
 
-    let dflags1 = foldl xopt_set dflags0 [Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_MagicHash, Opt_TemplateHaskell, Opt_QuasiQuotes, Opt_OverloadedStrings, Opt_TypeFamilies, Opt_FlexibleContexts, Opt_GADTs, Opt_MultiParamTypeClasses] -- What if the user does not want an implicit prelude?
+    let dflags1 = foldl xopt_set dflags0 [ Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_MagicHash
+                                         , Opt_TemplateHaskell, Opt_QuasiQuotes, Opt_OverloadedStrings
+                                         , Opt_TypeFamilies, Opt_FlexibleContexts, Opt_GADTs
+                                         , Opt_MultiParamTypeClasses] -- FIXME What if the user does not want an implicit prelude?
         dflags2 = dflags1 { hscTarget = HscInterpreted
                           , ghcLink = LinkInMemory
                           }
@@ -88,42 +135,79 @@ setDynamicFlags ghcOpts dflags0 = do
 
     return dflags3
 
-getImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
-getImports targetFile targetModuleName =
+-- |Read the textual imports in a file.
+--
+-- Example:
+--
+-- >>> (showSDoc tracingDynFlags) . ppr <$> getTextualImports "tests/Hiding.hs" "Hiding" >>= putStrLn
+-- [ import (implicit) Prelude, import qualified Safe
+-- , import System.Environment ( getArgs )
+-- , import Data.List hiding ( map )
+-- ]
+--
+-- See also 'toHaskellModule'.
+
+getTextualImports :: FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
+getTextualImports targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
         runGhc (Just libdir) $ do
             getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
 
-            GhcMonad.liftIO $ print "getImports1"
-
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
-            GhcMonad.liftIO $ print "getImports1a"
             setTargets [target]
-            GhcMonad.liftIO $ print "getImports1b"
             load LoadAllTargets
-
-            GhcMonad.liftIO $ print "getImports2"
 
             -- Set the context by loading the module, e.g. "Muddle" which is in "Muddle.hs".
             setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName]
 
-            GhcMonad.liftIO $ print "getImports2"
-
             -- Extract the module summary and the *textual* imports.
             modSum <- getModSummary $ mkModuleName targetModuleName
 
-            GhcMonad.liftIO $ print "getImports2"
-
             return $ ms_textual_imps modSum
 
-data HaskellModule = HaskellModule { modName          :: String
-                                   , modQualifier     :: Maybe String
-                                   , modIsImplicit    :: Bool
-                                   , modHiding        :: [String]
-                                   , modImportedAs    :: Maybe String
-                                   , modSpecifically  :: [String]
-                                   } deriving (Show, Eq)
+-- |Convenience function for converting an 'GHC.ImportDecl' to a 'HaskellModule'.
+--
+-- Example:
+--
+-- > -- Hiding.hs
+-- > module Hiding where
+-- > import Data.List hiding (map)
+-- > import System.Environment (getArgs)
+-- > import qualified Safe
+--
+-- then:
+--
+-- >>> map toHaskellModule <$> getTextualImports "tests/Hiding.hs" "Hiding" >>= print
+-- [ HaskellModule { modName = "Prelude"
+--                 , modQualifier = Nothing
+--                 , modIsImplicit = True
+--                 , modHiding = []
+--                 , modImportedAs = Nothing
+--                 , modSpecifically = []
+--                 }
+-- , HaskellModule {modName = "Safe"
+--                 , modQualifier = Nothing
+--                 , modIsImplicit = False
+--                 , modHiding = []
+--                 , modImportedAs = Nothing
+--                 , modSpecifically = []
+--                 }
+-- , HaskellModule { modName = "System.Environment"
+--                 , modQualifier = Nothing
+--                 , modIsImplicit = False
+--                 , modHiding = []
+--                 , modImportedAs = Nothing
+--                 , modSpecifically = ["getArgs"]
+--                 }
+-- , HaskellModule { modName = "Data.List"
+--                 , modQualifier = Nothing
+--                 , modIsImplicit = False
+--                 , modHiding = ["map"]
+--                 , modImportedAs = Nothing
+--                 , modSpecifically = []
+--                 }
+-- ]
 
 toHaskellModule :: SrcLoc.Located (GHC.ImportDecl GHC.RdrName) -> HaskellModule
 toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedAs specifically
@@ -132,7 +216,6 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           isImplicit = GHC.ideclImplicit idecl'
           qualifier  = unpackFS <$> GHC.ideclPkgQual idecl'
           hiding     = map removeBrackets $ (catMaybes . parseHiding . GHC.ideclHiding) idecl'
-          -- importedAs = showSDoc tracingDynFlags (ppr $ ideclAs idecl')
           importedAs = ((showSDoc tracingDynFlags) . ppr) <$> (ideclAs idecl')
           specifically = map removeBrackets $ (parseSpecifically . GHC.ideclHiding) idecl'
 
@@ -163,10 +246,19 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           parseSpecifically (Just (False, h)) = map grabNames h
           parseSpecifically _                 = []
 
+-- |Find all matches for a symbol in a source file. The last parameter is a list of
+-- imports.
+--
+-- Example:
+--
+-- >>> x <- lookupSymbol "tests/Hiding.hs" "Hiding" "head" ["Prelude", "Safe", "System.Environment", "Data.List"]
+-- *GhcImportedFrom> putStrLn . (showSDoc tracingDynFlags) . ppr $ x
+-- [(GHC.List.head,
+--   [GHC.List.head
+--      imported from `Data.List' at tests/Hiding.hs:5:1-29
+--      (and originally defined in `base:GHC.List')])]
 
-
-
-lookupSymbol :: String -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
+lookupSymbol :: FilePath -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
 lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
@@ -198,20 +290,18 @@ lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
 
         return $ zip names occNamesLookups
 
--- Module in which a name is *defined*.
+-- | Module in which a name is defined.
 symbolDefinedIn :: Name -> Module
 symbolDefinedIn occname = nameModule occname
 
--- List of possible modules which have resulted in
+-- | List of possible modules which have resulted in
 -- the name being in the current scope. Using a
 -- global reader we get the provenance data and then
 -- get the list of import specs.
 symbolImportedFrom :: GlobalRdrElt -> [ModuleName]
 symbolImportedFrom occNameLookup = map importSpecModule whys
   where prov = gre_prov occNameLookup :: Provenance
-        Imported whys = prov
-        _ = whys :: [ImportSpec] -- dummy binding so we can see that 'whys' has this type, just for documentation
-
+        Imported (whys :: [ImportSpec])  = prov
 
 -- This definition of separateBy is taken
 -- from: http://stackoverflow.com/a/4978733
@@ -220,18 +310,33 @@ separateBy chr = unfoldr sep' where
   sep' [] = Nothing
   sep' l  = Just . fmap (drop 1) . break (==chr) $ l
 
-postfixMatch :: String -> String -> Bool
+-- | Returns True if the 'Symbol' matches the end of the 'QualifiedName'.
+--
+-- Example:
+--
+-- >>> postfixMatch "bar" "Foo.bar"
+-- True
+-- >>> postfixMatch "bar" "Foo.baz"
+-- False
+-- >>> postfixMatch "bar" "bar"
+-- True
+postfixMatch :: Symbol -> QualifiedName -> Bool
 postfixMatch originalSymbol qName = isPrefixOf (reverse endTerm) (reverse qName)
   where endTerm = last $ separateBy '.' originalSymbol
 
--- FIXME Is there a way to deconstruct the name properly instead of this kludge?
-moduleOfQualifiedName :: String -> Maybe String
-moduleOfQualifiedName qn = if moduleBits == []
-                                      then Nothing
-                                      else Just $ concat $ intersperse "." moduleBits
-  where moduleBits = reverse $ drop 1 $ reverse $ separateBy '.' qn -- FIXME is this ok?
-
-
+-- | Get the module part of a qualified name.
+--
+-- Example:
+--
+-- >>> moduleOfQualifiedName "Foo.bar"
+-- Just "Foo"
+-- >>> moduleOfQualifiedName "bar"
+-- Nothing
+moduleOfQualifiedName :: QualifiedName -> Maybe String
+moduleOfQualifiedName qn = if bits == []
+                                then Nothing
+                                else Just $ concat $ intersperse "." bits
+  where bits = reverse $ drop 1 $ reverse $ separateBy '.' qn
 
 -- listifySpans and listifyStaged are copied from ghcmod/Language/Haskell/GhcMod/Info.hs
 listifySpans :: Typeable a => TypecheckedSource -> (Int, Int) -> [Located a]
@@ -242,8 +347,18 @@ listifySpans tcs lc = listifyStaged TypeChecker p tcs
 listifyStaged :: Typeable r => Stage -> (r -> Bool) -> GenericQ [r]
 listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 
+-- | Find the possible qualified names for the symbol at line/col in the given Haskell file and module.
+--
+-- Example:
+--
+-- >>> x <- qualifiedName "tests/Muddle.hs" "Muddle" 27 5 ["Data.Maybe", "Data.List", "Data.Map", "Safe"]
+-- >>> forM_ x print
+-- "AbsBinds [] []\n  {Exports: [Muddle.h <= h\n               <>]\n   Exported types: Muddle.h\n                     :: Data.Map.Base.Map GHC.Base.String GHC.Base.String\n                   [LclId]\n   Binds: h = Data.Map.Base.fromList [(\"x\", \"y\")]}"
+-- "h = Data.Map.Base.fromList [(\"x\", \"y\")]"
+-- "Data.Map.Base.fromList [(\"x\", \"y\")]"
+-- "Data.Map.Base.fromList"
 
-qualifiedName :: String -> String -> Int -> Int -> [String] -> IO [String]
+qualifiedName :: FilePath -> String -> Int -> Int -> [String] -> IO [String]
 qualifiedName targetFile targetModuleName lineNo colNo importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
@@ -264,12 +379,12 @@ qualifiedName targetFile targetModuleName lineNo colNo importList =
             es = listifySpans tcs (lineNo, colNo) :: [LHsExpr Id]
             ps = listifySpans tcs (lineNo, colNo) :: [LPat Id]
 
-        let blahToString x = showSDoc tracingDynFlags $ ppr x
-            bsStrings = map blahToString bs
-            esStrings = map blahToString es
-            psStrings = map blahToString ps
+        let foo x = showSDoc tracingDynFlags $ ppr x
+            bs' = map foo bs
+            es' = map foo es
+            ps' = map foo ps
 
-        return $ bsStrings ++ esStrings ++ psStrings
+        return $ bs' ++ es' ++ ps'
 
 -- Read everything else available on a handle, and return the empty
 -- string if we have hit EOF.
@@ -280,6 +395,8 @@ readRestOfHandle h = do
         then return ""
         else hGetContents h
 
+-- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
+-- in @base-4.6.0.1@.
 ghcPkgFindModule :: ModuleName -> IO (Maybe String)
 ghcPkgFindModule m = do
 
@@ -288,7 +405,7 @@ ghcPkgFindModule m = do
     let opts = ["find-module", m', "--simple-output"] ++ myOptsTmp'
     putStrLn $ "ghc-pkg " ++ (unwords opts)
 
-    (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
+    (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
                                                                        , std_out = CreatePipe
                                                                        , std_err = CreatePipe
                                                                        }
@@ -300,6 +417,7 @@ ghcPkgFindModule m = do
 
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
+-- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 ghcPkgHaddockUrl :: String -> IO (Maybe String)
 ghcPkgHaddockUrl p = do
     let opts = ["field", p, "haddock-html"] ++ myOptsTmp'
@@ -314,10 +432,13 @@ ghcPkgHaddockUrl p = do
 
     return $ Safe.lastMay $ words line
 
+-- | Convert a 'ModuleName' to a 'String', e.g. @Data.List@ to @Data-List.html@.
 moduleNameToHtmlFile :: ModuleName -> String
 moduleNameToHtmlFile m =  base' ++ ".html"
-    where base = (showSDoc tracingDynFlags (ppr m))
+    where base = showSDoc tracingDynFlags $ ppr m
           base' = map f base
+
+          f :: Char -> Char
           f '.' = '-'
           f c   = c
 
@@ -380,14 +501,14 @@ main = do
         lineNo         = (read $ args !! 3) :: Int
         colNo          = (read $ args !! 4) :: Int
 
-    importList <- (map (modName . toHaskellModule)) <$> getImports targetFile targetModule
+    importList <- (map (modName . toHaskellModule)) <$> getTextualImports targetFile targetModule
     forM_ importList $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
 
-    importListRaw <- getImports targetFile targetModule
+    importListRaw <- getTextualImports targetFile targetModule
     forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
     putStrLn "############################################################"
 
-    -- importListRaw <- (map toHaskellModule) <$> getImports targetFile targetModule
+    -- importListRaw <- (map toHaskellModule) <$> getTextualImports targetFile targetModule
     -- forM_ importListRaw $ \x -> putStrLn $ "  " ++ (show x)
     -- putStrLn "############################################################"
 
