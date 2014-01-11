@@ -1,6 +1,6 @@
 #!/bin/bash
 
-bin="../.cabal-sandbox/bin/ghc-imported-from"
+bin="ghc-imported-from"
 
 # TODO Automate these. HUnit?
 
