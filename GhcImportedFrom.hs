@@ -68,42 +68,17 @@ import qualified Packages
 import qualified SrcLoc
 import qualified Safe
 
-{-
-
-TODO
-
-* Pass in ghc options, e.g. "--package-db" so that a command like this works:
-
-    ghc-pkg --package-db ./.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d field safe haddock-html
-    haddock-html: /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html
-
--}
-
--- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
--- at http://www.vex.net/~trebla/haskell/sicp.xhtml
-
--- myOptsTmp :: [String]
--- myOptsTmp' :: [String]
-
--- with my cli yesod blog in a sandbox:
--- myOptsTmp  = ["-no-user-package-db", "-package-db /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
--- myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
-
--- with a "cabal install" installation of ghc-imported-from:
--- derps = []
--- myOptsTmp  = ["-global"]
--- myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
-
 type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
 type Symbol = String -- ^ A symbol, possibly qualified, e.g. "bar" or "Foo.bar".
 
 newtype GhcOptions
-    -- | List of user-supplied GHC options, e.g. ["-global"]
+    -- | List of user-supplied GHC options, refer to @tests@ subdirectory for example usage. Note that
+    -- GHC API and ghc-pkg have inconsistencies in the naming of options, see <http://www.vex.net/~trebla/haskell/sicp.xhtml> for more details.
     = GhcOptions [String] deriving (Show)
 
 newtype GhcPkgOptions
-    -- | List of user-supplied ghc-pkg options, e.g. ["--global", "--package-db /foo/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+    -- | List of user-supplied ghc-pkg options.
     = GhcPkgOptions [String] deriving (Show)
 
 data HaskellModule
