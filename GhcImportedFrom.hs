@@ -17,6 +17,7 @@ Author: Carlo Hamalainen <carlo@carlo-hamalainen.net>
 module GhcImportedFrom ( QualifiedName
                        , Symbol
                        , GhcOptions (..)
+                       , GhcPkgOptions (..)
                        , HaskellModule (..)
                        , setDynamicFlags
                        , getTextualImports
@@ -81,8 +82,8 @@ TODO
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
 
-myOptsTmp :: [String]
-myOptsTmp' :: [String]
+-- myOptsTmp :: [String]
+-- myOptsTmp' :: [String]
 
 -- with my cli yesod blog in a sandbox:
 -- myOptsTmp  = ["-no-user-package-db", "-package-db /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
@@ -90,16 +91,20 @@ myOptsTmp' :: [String]
 
 -- with a "cabal install" installation of ghc-imported-from:
 -- derps = []
-myOptsTmp  = ["-global"]
-myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+-- myOptsTmp  = ["-global"]
+-- myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
 
 type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
 type Symbol = String -- ^ A symbol, possibly qualified, e.g. "bar" or "Foo.bar".
 
-data GhcOptions
-    -- | List of user-supplied GHC options, e.g. ["--global", "--no-user-package"].
+newtype GhcOptions
+    -- | List of user-supplied GHC options, e.g. ["-global"]
     = GhcOptions [String] deriving (Show)
+
+newtype GhcPkgOptions
+    -- | List of user-supplied ghc-pkg options, e.g. ["--global", "--package-db /foo/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
+    = GhcPkgOptions [String] deriving (Show)
 
 data HaskellModule
     -- | Information about an import of a Haskell module.
@@ -120,10 +125,11 @@ data HaskellModule
 -- >        getSessionDynFlags >>= setDynamicFlags (GhcOptions myGhcOptionList)
 -- >        -- do stuff
 setDynamicFlags :: GhcOptions -> DynFlags -> Ghc DynFlags
-setDynamicFlags ghcOpts dflags0 = do
+setDynamicFlags (GhcOptions ghcOpts) dflags0 = do
     -- FIXME actually use ghcOpts, not myOptsTmp!
     -- FIXME parse the language options like Opt_TemplateHaskell from the source file.
-    let argv0 = myOptsTmp
+    -- let argv0 = myOptsTmp
+    let argv0 = ghcOpts
 
     let dflags1 = foldl xopt_set dflags0 [ Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_MagicHash
                                          , Opt_TemplateHaskell, Opt_QuasiQuotes, Opt_OverloadedStrings
@@ -403,13 +409,13 @@ readRestOfHandle h = do
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-ghcPkgFindModule :: ModuleName -> IO (Maybe String)
-ghcPkgFindModule m = do
+ghcPkgFindModule :: GhcPkgOptions -> ModuleName -> IO (Maybe String)
+ghcPkgFindModule (GhcPkgOptions ghcPkgOpts) m = do
 
     let m' = showSDoc tracingDynFlags (ppr $ m)
 
-    let opts = ["find-module", m', "--simple-output"] ++ myOptsTmp'
-    putStrLn $ "ghc-pkg " ++ (unwords opts)
+    let opts = ["find-module", m', "--simple-output"] ++ ghcPkgOpts
+    putStrLn $ "ghc-pkg " ++ (show opts)
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
                                                                        , std_out = CreatePipe
@@ -424,10 +430,10 @@ ghcPkgFindModule m = do
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
-ghcPkgHaddockUrl :: String -> IO (Maybe String)
-ghcPkgHaddockUrl p = do
-    let opts = ["field", p, "haddock-html"] ++ myOptsTmp'
-    print opts
+ghcPkgHaddockUrl :: GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgHaddockUrl (GhcPkgOptions ghcPkgOpts) p = do
+    let opts = ["field", p, "haddock-html"] ++ ghcPkgOpts
+    putStrLn $ "ghc-pkg "++ (show opts)
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
                                                                , std_out = CreatePipe
@@ -535,8 +541,8 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
 -- (lots of output)
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 --
-guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> IO ()
-guessHaddockUrl targetFile targetModule symbol lineNo colNo = do
+guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO ()
+guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOpts ghcPkgOpts = do
     importList <- (map (modName . toHaskellModule)) <$> getTextualImports targetFile targetModule
     forM_ importList $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
 
@@ -612,12 +618,12 @@ guessHaddockUrl targetFile targetModule symbol lineNo colNo = do
 
                                     putStrLn $ "importedFrom: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
 
-                                    m' <- maybe (return Nothing) ghcPkgFindModule importedFrom
+                                    m' <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
                                     putStrLn $ "ghcPkgFindModule: " ++ (show m')
 
                                     let base = moduleNameToHtmlFile <$> importedFrom
 
-                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) ghcPkgHaddockUrl m'
+                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) m'
 
                                     print "haddock:"
                                     print haddock

@@ -1,8 +1,9 @@
 import GhcImportedFrom
 
+import Data.List
+import Data.Maybe
 import System.Environment
 import System.IO()
-
 
 main :: IO ()
 main = do
@@ -14,7 +15,18 @@ main = do
         symbol         = args !! 2
         lineNo         = (read $ args !! 3) :: Int
         colNo          = (read $ args !! 4) :: Int
-        ghcOpts        = GhcOptions $ drop 5 args
+        rest           = drop 5 args
 
-    putStrLn $ "ghcOpts: " ++ (show ghcOpts)
-    guessHaddockUrl targetFile targetModule symbol lineNo colNo
+    -- assert: rest !! 0 == "--ghc-options"
+
+    let n = fromJust $ findIndex (== "--ghc-pkg-options") rest
+
+    -- assert: rest !! n == "--ghc-pkg-options"
+
+    let ghcOptions    = GhcOptions $ tail $ take n rest
+    let ghcPkgOptions = GhcPkgOptions $ drop (n + 1) rest
+
+    putStrLn $ "ghcOptions: " ++ (show ghcOptions)
+    putStrLn $ "ghcPkgOptions: " ++ (show ghcPkgOptions)
+
+    guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOptions ghcPkgOptions
