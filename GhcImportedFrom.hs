@@ -29,6 +29,10 @@ module GhcImportedFrom ( QualifiedName
                        , ghcPkgFindModule
                        , ghcPkgHaddockUrl
                        , moduleNameToHtmlFile
+                       , lookupSymbol
+                       , expandMatchingAsImport
+                       , specificallyMatches
+                       , guessHaddockUrl
                        ) where
 
 import Control.Applicative
@@ -56,9 +60,9 @@ import System.IO
 import System.Process
 import TcRnTypes()
 
-import qualified DynFlags
+import qualified DynFlags()
 import qualified GhcMonad
-import qualified MonadUtils
+import qualified MonadUtils()
 import qualified Packages
 import qualified SrcLoc
 import qualified Safe
@@ -77,15 +81,17 @@ TODO
 -- Inconsistency with the package-db option. Sometimes --package-db, sometimes -package-db. See notes
 -- at http://www.vex.net/~trebla/haskell/sicp.xhtml
 
+myOptsTmp :: [String]
+myOptsTmp' :: [String]
+
 -- with my cli yesod blog in a sandbox:
--- derps = [ "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
--- myOptsTmp  = ["-no-user-package-db"] ++ map ("-package-db  " ++) derps
--- myOptsTmp' = ["--global"] ++ (concat $ map (\x -> ["--package-db", x]) derps)
+-- myOptsTmp  = ["-no-user-package-db", "-package-db /home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d" ]
+-- myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
 
 -- with a "cabal install" installation of ghc-imported-from:
-derps = []
+-- derps = []
 myOptsTmp  = ["-global"]
-myOptsTmp' = (concat $ map (\x -> ["--package-db", x]) derps)
+myOptsTmp' = ["--global", "--package-db", "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"]
 
 type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
@@ -235,7 +241,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           --     import System.Environment ( getArgs )
           --
           -- then we get ["getArgs"] here, but we don't really need it...
-          parseHiding (Just (False, h)) = [] -- error $ "This should not happen?" ++ (show (map grabNames h))
+          parseHiding (Just (False, _)) = []
 
           -- Actually hid names, e.g.
           --
@@ -285,7 +291,7 @@ lookupSymbol targetFile targetModuleName qualifiedSymbol importList =
         -- GHC panic. A fully qualified name should suffice. Is there a way to
         -- catch this exception?
         names <- parseName qualifiedSymbol
-        let occNames = map nameOccName names                        :: [OccName]
+        let occNames        = map nameOccName names                 :: [OccName]
             occNamesLookups = map (lookupGlobalRdrEnv gre) occNames :: [[GlobalRdrElt]]
 
         return $ zip names occNamesLookups
@@ -442,11 +448,27 @@ moduleNameToHtmlFile m =  base' ++ ".html"
           f '.' = '-'
           f c   = c
 
--- If symbol == "X.foo" and an element of hmodules is an import of the original form
--- "import Y.Z as X" then we return Just "Y.Z.foo".
+-- | If the Haskell module has an import like @import qualified Data.List as DL@, convert an
+-- occurence @DL.fromList@ to the qualified name using the actual module name: @Data.List.fromList@.
 --
--- FIXME assert length 1 as well?
-expandMatchingAsImport :: String -> [HaskellModule] -> Maybe String
+-- Example:
+--
+-- > -- Muddle.hs
+-- >
+-- > module Muddle where
+-- >
+-- > import Data.Maybe
+-- > import qualified Data.List as DL
+-- > import qualified Data.Map as DM
+-- > import qualified Safe
+--
+-- then:
+--
+-- >>> hmodules <- map toHaskellModule <$> getTextualImports "tests/Muddle.hs" "Muddle"
+-- >>> print $ expandMatchingAsImport "DL.fromList" hmodules
+-- Just "Data.List.fromList"
+
+expandMatchingAsImport :: QualifiedName -> [HaskellModule] -> Maybe QualifiedName
 expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just $ (modName h) ++ (drop (length cp) symbol)
                                                    _                     -> Nothing
     where x = Safe.headMay $ filter (isJust . snd) $ zip hmodules (map (cmpMod symbol) hmodules)
@@ -460,26 +482,40 @@ expandMatchingAsImport symbol hmodules = case x of (Just (h, (Just cp))) -> Just
           commonPrefix :: Eq a => [a] -> [a] -> [a]
           commonPrefix a b = map fst (takeWhile (uncurry (==)) (zip a b))
 
-specificallyMatches :: String -> [HaskellModule] -> [HaskellModule]
+-- | Return list of modules which explicitly import a symbol.
+--
+-- Example:
+--
+-- > -- Hiding.hs
+-- > module Hiding where
+-- > import Data.List hiding (map)
+-- > import System.Environment (getArgs)
+-- > import qualified Safe
+--
+-- >>> hmodules <- map toHaskellModule <$> getTextualImports "tests/Hiding.hs" "Hiding"
+-- >>> print $ specificallyMatches "getArgs" hmodules
+-- [ HaskellModule { modName = "System.Environment"
+--                 , modQualifier = Nothing
+--                 , modIsImplicit = False
+--                 , modHiding = []
+--                 , modImportedAs = Nothing
+--                 , modSpecifically = ["getArgs"]
+--                 }
+-- ]
+
+specificallyMatches :: Symbol -> [HaskellModule] -> [HaskellModule]
 specificallyMatches symbol importList = filter (\h -> symbol `elem` modSpecifically h) importList
 
--- f = "Platform\\\\2013.2.0.0\\\\lib/../doc/html/libraries/base-4.6.0.1\\Control-Monad.html"
--- m = "base-4.6.0.1"
-
--- f = "/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/share/doc/x86_64-linux-ghc-7.6.3/safe-0.3.3/html/Safe.html"
--- m = "safe-0.3.3"
-
-_filepath = "/home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Prelude.html"
-_package = "base-4.6.0.1"
-_modulename = "Prelude"
-
--- Should parse this properly...
-toHackageUrl :: String -> String -> String -> String
+-- | Convert a file path to a Hackage HTML file to its equivalent on @https://hackage.haskell.org@.
+toHackageUrl :: FilePath -> String -> String -> String
 toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/" ++ package ++ "/" ++ "docs/" ++ modulename''
-    where filepath' = map repl filepath
-          modulename' = head $ separateBy '.' $ head $ separateBy '-' modulename
+    where filepath'    = map repl filepath
+          modulename'  = head $ separateBy '.' $ head $ separateBy '-' modulename
           modulename'' = drop (fromJust $ substringP modulename' filepath') filepath'
 
+          -- On Windows we get backslashes in the file path; convert
+          -- to forward slashes for the URL.
+          repl :: Char -> Char
           repl '\\' = '/'
           repl c    = c
 
@@ -490,17 +526,17 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
             False -> fmap (+1) $ substringP sub (tail str)
             True  -> Just 0
 
-main :: IO ()
-main = do
-    args <- getArgs
-
-    -- quick and dirty argument parsing, no error checking
-    let targetFile     = args !! 0
-        targetModule   = args !! 1
-        symbol         = args !! 2
-        lineNo         = (read $ args !! 3) :: Int
-        colNo          = (read $ args !! 4) :: Int
-
+-- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
+-- for the symbol in the given file, module, at the specified line and column location.
+--
+-- Example:
+--
+-- >>> guessHaddockUrl "tests/Muddle.hs" "Muddle" "Maybe" 11 11
+-- (lots of output)
+-- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
+--
+guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> IO ()
+guessHaddockUrl targetFile targetModule symbol lineNo colNo = do
     importList <- (map (modName . toHaskellModule)) <$> getTextualImports targetFile targetModule
     forM_ importList $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
 
@@ -565,12 +601,13 @@ main = do
                                     putStrLn $ "name: " ++ (showSDoc tracingDynFlags (ppr name))
                                     -- putStrLn $ "imports: " ++ (show importList')
 
-                                    let -- definedIn = symbolDefinedIn name
+                                    let definedIn = symbolDefinedIn name
                                         -- importedFrom = Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
                                         importedFrom = if smatches == []
                                                             then Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
                                                             else (Just . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
 
+                                    putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags $ ppr definedIn)
                                     putStrLn $ "all imported froms: " ++ (showSDoc tracingDynFlags (ppr $ concat $ map symbolImportedFrom lookUp))
 
                                     putStrLn $ "importedFrom: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
@@ -602,4 +639,3 @@ main = do
                                     -- if importedFrom == []
                                     --     then putStrLn $ "imported from: 000FAIL000"
                                     --     else putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ head $ importedFrom))
-
