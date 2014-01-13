@@ -507,6 +507,34 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
             False -> fmap (+1) $ substringP sub (tail str)
             True  -> Just 0
 
+findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO (Maybe ModuleName, Maybe [Char], Maybe String, Maybe String)
+findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
+    putStrLn $ "name: " ++ (showSDoc tracingDynFlags (ppr name))
+
+    let definedIn = symbolDefinedIn name
+        importedFrom = if smatches == []
+                            then Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
+                            else (Just . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+
+    putStrLn $ "definedIn: " ++ (showSDoc tracingDynFlags $ ppr definedIn)
+    putStrLn $ "concat $ map symbolImportedFrom lookUp: " ++ (showSDoc tracingDynFlags (ppr $ concat $ map symbolImportedFrom lookUp))
+
+    putStrLn $ "importedFrom: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
+
+    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
+    putStrLn $ "ghcPkgFindModule result: " ++ (show foundModule)
+
+    let base = moduleNameToHtmlFile <$> importedFrom
+
+    putStrLn $ "base: : " ++ (show base)
+
+    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
+
+    putStrLn $ "haddock: " ++ (show haddock)
+    putStrLn $ "foundModule: " ++ (show foundModule)
+
+    return (importedFrom, haddock, foundModule, base)
+
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
 --
@@ -561,39 +589,17 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcOpts ghcPkgOpts =
 
     putStrLn $ "symbol'': " ++ symbol''
 
-    x <- lookupSymbol targetFile targetModule symbol'' haskellModuleNames'
+    let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-    forM_ x $ \(name, lookUp) -> do putStrLn ""
-                                    putStrLn $ "name: " ++ (showSDoc tracingDynFlags (ppr name))
+    final <- (filter allJust) <$> (lookupSymbol targetFile targetModule symbol'' haskellModuleNames' >>= mapM (findHaddockModule symbol'' smatches ghcPkgOpts))
 
-                                    let definedIn = symbolDefinedIn name
-                                        importedFrom = if smatches == []
-                                                            then Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
-                                                            else (Just . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+    forM_ final $ \(importedFrom, haddock, foundModule, base) ->
+                        do let f = (fromJust haddock) </> (fromJust base)
+                           e <- doesFileExist f
 
-                                    putStrLn $ "definedIn: " ++ (showSDoc tracingDynFlags $ ppr definedIn)
-                                    putStrLn $ "concat $ map symbolImportedFrom lookUp: " ++ (showSDoc tracingDynFlags (ppr $ concat $ map symbolImportedFrom lookUp))
+                           if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
+                                else do putStrLn $ "f:  " ++ (show f)
+                                        putStrLn $ "foundModule: " ++ (show (fromJust foundModule))
+                                        putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust foundModule) (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom)))
 
-                                    putStrLn $ "importedFrom: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
-
-                                    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
-                                    putStrLn $ "ghcPkgFindModule result: " ++ (show foundModule)
-
-                                    let base = moduleNameToHtmlFile <$> importedFrom
-
-                                    putStrLn $ "base: : " ++ (show base)
-
-                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
-
-                                    putStrLn $ "haddock: " ++ (show haddock)
-                                    putStrLn $ "foundModule: " ++ (show foundModule)
-
-                                    if isNothing haddock || isNothing foundModule
-                                        then putStrLn $ "haddock: 111FAIL111"
-                                        else do let f = (fromJust haddock) </> (fromJust base)
-                                                e <- doesFileExist f
-
-                                                if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
-                                                     else do putStrLn $ "f:  " ++ (show f)
-                                                             putStrLn $ "foundModule: " ++ (show (fromJust foundModule))
-                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust foundModule) (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom)))
+                           putStrLn ""
