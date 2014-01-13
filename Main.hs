@@ -26,7 +26,7 @@ main = do
     let ghcOptions    = GhcOptions $ tail $ take n rest
     let ghcPkgOptions = GhcPkgOptions $ drop (n + 1) rest
 
-    putStrLn $ "ghcOptions: " ++ (show ghcOptions)
-    putStrLn $ "ghcPkgOptions: " ++ (show ghcPkgOptions)
+    putStrLn $ show ghcOptions
+    putStrLn $ show ghcPkgOptions
 
     guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOptions ghcPkgOptions

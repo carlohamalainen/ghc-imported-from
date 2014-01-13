@@ -346,7 +346,7 @@ listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 -- "Data.Map.Base.fromList"
 
 qualifiedName :: FilePath -> String -> Int -> Int -> [String] -> IO [String]
-qualifiedName targetFile targetModuleName lineNo colNo importList =
+qualifiedName targetFile targetModuleName lineNr colNr importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       runGhc (Just libdir) $ do
         getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
@@ -362,9 +362,9 @@ qualifiedName targetFile targetModuleName lineNo colNo importList =
         t <- typecheckModule p        :: Ghc TypecheckedModule
 
         let TypecheckedModule{tm_typechecked_source = tcs} = t
-            bs = listifySpans tcs (lineNo, colNo) :: [LHsBind Id]
-            es = listifySpans tcs (lineNo, colNo) :: [LHsExpr Id]
-            ps = listifySpans tcs (lineNo, colNo) :: [LPat Id]
+            bs = listifySpans tcs (lineNr, colNr) :: [LHsBind Id]
+            es = listifySpans tcs (lineNr, colNr) :: [LHsExpr Id]
+            ps = listifySpans tcs (lineNr, colNr) :: [LPat Id]
 
         let foo x = showSDoc tracingDynFlags $ ppr x
             bs' = map foo bs
@@ -517,106 +517,83 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 --
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO ()
-guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOpts ghcPkgOpts = do
-    importList <- (map (modName . toHaskellModule)) <$> getTextualImports targetFile targetModule
-    forM_ importList $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
-
-    importListRaw <- getTextualImports targetFile targetModule
-    forM_ importListRaw $ \x -> putStrLn $ "  " ++ (showSDoc tracingDynFlags (ppr $ x))
-    putStrLn "############################################################"
-
-    -- importListRaw <- (map toHaskellModule) <$> getTextualImports targetFile targetModule
-    -- forM_ importListRaw $ \x -> putStrLn $ "  " ++ (show x)
-    -- putStrLn "############################################################"
-
-    qnames <- (filter (not . (' ' `elem`))) <$> qualifiedName targetFile targetModule lineNo colNo importList :: IO [String]
-
-    putStrLn "<qnames>"
-    forM_ qnames putStrLn
-    putStrLn "</qnames>"
-    putStrLn ""
-
-    putStrLn "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-    let aai = expandMatchingAsImport symbol (map toHaskellModule importListRaw)
+guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcOpts ghcPkgOpts = do
+    putStrLn $ "targetFile: " ++ targetFile
+    putStrLn $ "targetModule: " ++ targetModule
     putStrLn $ "symbol: " ++ (show symbol)
-    putStrLn $ "importListRaw: " ++ (show $ map toHaskellModule importListRaw)
-    putStrLn $ "aai: " ++ (show aai)
-    putStrLn "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    putStrLn $ "line nr: " ++ (show lineNr)
+    putStrLn $ "col nr: " ++ (show colNr)
+
+    textualImports <- getTextualImports targetFile targetModule
+
+    let haskellModuleNames = map (modName . toHaskellModule) textualImports
+    putStrLn $ "haskellModuleNames: " ++ (show haskellModuleNames)
+
+    qnames <- (filter (not . (' ' `elem`))) <$> qualifiedName targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
+
+    putStrLn $ "qualified names: " ++ (show qnames)
+
+    let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
+    putStrLn $ "matchingAsImport: " ++ (show matchingAsImport)
 
     let postMatches = filter (postfixMatch symbol) qnames :: [String]
-
-        -- symbol' = if postMatches == [] then symbol else minimumBy (compare `on` length) postMatches -- Flaky?
-        symbol' = if isJust aai
-                    then fromJust aai
+        symbol' = if isJust matchingAsImport
+                    then fromJust matchingAsImport
                     else if postMatches == []
                             then symbol
                             else minimumBy (compare `on` length) postMatches -- Flaky?
 
-    putStrLn $ "symbol:  " ++ symbol
+    putStrLn $ "postMatches:  " ++ (show postMatches)
     putStrLn $ "symbol': " ++ symbol'
 
-
     let maybeExtraModule = moduleOfQualifiedName symbol'
-        importList' = if symbol == symbol' then importList else importList ++ [fromJust maybeExtraModule]
+        haskellModuleNames' = if symbol == symbol' then haskellModuleNames else haskellModuleNames ++ [fromJust maybeExtraModule]
 
-    -- putStrLn $ "try to match on: " ++ (show (symbol, qnames))
-    -- putStrLn $ "postMatches: " ++ (show postMatches)
-    putStrLn $ "importlist: " ++ (show importList)
-    putStrLn $ "importlist': " ++ (show importList')
+    putStrLn $ "maybeExtraModule: " ++ (show maybeExtraModule)
+    putStrLn $ "haskellModuleNames': " ++ (show haskellModuleNames')
 
-    let smatches = specificallyMatches symbol (map toHaskellModule importListRaw)
-
+    let smatches = specificallyMatches symbol (map toHaskellModule textualImports)
     putStrLn $ "smatches: " ++ (show smatches)
 
-    -- do this here, earlier, or what?
     let symbol'' = if smatches == []
                         then symbol'
                         else (modName $ head smatches) ++ "." ++ symbol
 
-    x <- lookupSymbol targetFile targetModule symbol'' importList'
+    putStrLn $ "symbol'': " ++ symbol''
 
-    forM_ x $ \(name, lookUp) -> do putStrLn $ "file: " ++ targetFile
-                                    putStrLn $ "module: " ++ targetModule
-                                    putStrLn $ "supplied symbol: " ++ symbol
-                                    putStrLn $ "inferred symbol: " ++ symbol''
+    x <- lookupSymbol targetFile targetModule symbol'' haskellModuleNames'
+
+    forM_ x $ \(name, lookUp) -> do putStrLn ""
                                     putStrLn $ "name: " ++ (showSDoc tracingDynFlags (ppr name))
-                                    -- putStrLn $ "imports: " ++ (show importList')
 
                                     let definedIn = symbolDefinedIn name
-                                        -- importedFrom = Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
                                         importedFrom = if smatches == []
                                                             then Safe.headMay $ concat $ map symbolImportedFrom lookUp :: Maybe ModuleName
                                                             else (Just . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
 
-                                    putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags $ ppr definedIn)
-                                    putStrLn $ "all imported froms: " ++ (showSDoc tracingDynFlags (ppr $ concat $ map symbolImportedFrom lookUp))
+                                    putStrLn $ "definedIn: " ++ (showSDoc tracingDynFlags $ ppr definedIn)
+                                    putStrLn $ "concat $ map symbolImportedFrom lookUp: " ++ (showSDoc tracingDynFlags (ppr $ concat $ map symbolImportedFrom lookUp))
 
                                     putStrLn $ "importedFrom: " ++ (showSDoc tracingDynFlags (ppr $ importedFrom))
 
-                                    m' <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
-                                    putStrLn $ "ghcPkgFindModule: " ++ (show m')
+                                    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
+                                    putStrLn $ "ghcPkgFindModule result: " ++ (show foundModule)
 
                                     let base = moduleNameToHtmlFile <$> importedFrom
 
-                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) m'
+                                    putStrLn $ "base: : " ++ (show base)
 
-                                    print "haddock:"
-                                    print haddock
-                                    print "m':"
-                                    print m'
+                                    haddock <- fmap (filter ((/=) '"')) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
 
-                                    if isNothing haddock || isNothing m'
+                                    putStrLn $ "haddock: " ++ (show haddock)
+                                    putStrLn $ "foundModule: " ++ (show foundModule)
+
+                                    if isNothing haddock || isNothing foundModule
                                         then putStrLn $ "haddock: 111FAIL111"
                                         else do let f = (fromJust haddock) </> (fromJust base)
                                                 e <- doesFileExist f
 
                                                 if e then putStrLn $ "SUCCESS: " ++ "file://" ++ f
                                                      else do putStrLn $ "f:  " ++ (show f)
-                                                             putStrLn $ "m': " ++ (show (fromJust m'))
-                                                             putStrLn $ "pack: " ++ (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom))
-                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust m') (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom)))
-                                    -- putStrLn $ "defined in: " ++ (showSDoc tracingDynFlags (ppr $ definedIn))
-
-                                    -- if importedFrom == []
-                                    --     then putStrLn $ "imported from: 000FAIL000"
-                                    --     else putStrLn $ "imported from: " ++ (showSDoc tracingDynFlags (ppr $ head $ importedFrom))
+                                                             putStrLn $ "foundModule: " ++ (show (fromJust foundModule))
+                                                             putStrLn $ "SUCCESS: " ++ (toHackageUrl f (fromJust foundModule) (showSDoc tracingDynFlags (ppr $ fromJust $ importedFrom)))
