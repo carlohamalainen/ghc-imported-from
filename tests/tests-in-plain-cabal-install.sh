@@ -2,7 +2,7 @@
 
 bin="ghc-imported-from"
 
-opts="--ghc-options -global --ghc-pkg-options --global"
+opts="--ghc-options -global --ghc-pkg-options "
 
 # TODO Automate these. HUnit?
 
