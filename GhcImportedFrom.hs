@@ -33,6 +33,7 @@ module GhcImportedFrom ( QualifiedName
                        , expandMatchingAsImport
                        , specificallyMatches
                        , guessHaddockUrl
+                       , findHaddockModule
                        ) where
 
 import Control.Applicative
@@ -340,11 +341,11 @@ listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 -- "Data.Map.Base.fromList [(\"x\", \"y\")]"
 -- "Data.Map.Base.fromList"
 
-qualifiedName :: FilePath -> String -> Int -> Int -> [String] -> IO [String]
-qualifiedName targetFile targetModuleName lineNr colNr importList =
+qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> IO [String]
+qualifiedName ghcOpts targetFile targetModuleName lineNr colNr importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
-        getSessionDynFlags >>= setDynamicFlags (GhcOptions [])
+        getSessionDynFlags >>= setDynamicFlags ghcOpts
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -550,7 +551,7 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcOpts ghcPkgOpts =
     let haskellModuleNames = map (modName . toHaskellModule) textualImports
     putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
 
-    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
+    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName ghcOpts targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
 
     putStrLn $ "qualified names: " ++ show qnames
 
