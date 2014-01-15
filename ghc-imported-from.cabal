@@ -25,6 +25,8 @@ library
                  , ghc >=7.6 && <7.7
                  , ghc-paths >=0.1 && <0.2
                  , ghc-syb-utils
+                 , Cabal
+                 , ghc-mod
                  , filepath
                  , safe
                  , process
@@ -44,6 +46,8 @@ executable ghc-imported-from
                , ghc >=7.6 && <7.7
                , ghc-paths >=0.1 && <0.2
                , ghc-syb-utils
+               , Cabal
+               , ghc-mod
                , filepath
                , safe
                , process

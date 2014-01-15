@@ -2,7 +2,8 @@
 
 bin="ghc-imported-from"
 
-opts="--ghc-options -global --ghc-pkg-options --global --package-db ../.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+# opts="--ghc-options -global --ghc-pkg-options --global --package-db ../.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"
+opts="--ghc-options --ghc-pkg-options"
 
 # TODO Automate these. HUnit?
 
