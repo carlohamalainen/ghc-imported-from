@@ -71,9 +71,33 @@ import qualified Packages
 import qualified SrcLoc
 import qualified Safe
 
-import Language.Haskell.GhcMod as GM
-import Language.Haskell.GhcMod.Internal as GMI()
-import Distribution.PackageDescription as PD()
+import Language.Haskell.GhcMod
+import Language.Haskell.GhcMod.Internal
+import Distribution.PackageDescription
+import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
+import Distribution.Version (Version)
+
+
+
+import Distribution.PackageDescription
+import Distribution.PackageDescription.Configuration (finalizePackageDescription)
+import Distribution.PackageDescription.Parse (readPackageDescription)
+import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
+import Distribution.Simple.Program (ghcProgram)
+import Distribution.Simple.Program.Types (programName, programFindVersion)
+import Distribution.System (buildPlatform)
+import Distribution.Text (display)
+import Distribution.Verbosity (silent)
+import Distribution.Version (Version)
+
+import Control.Exception (throwIO)
+
+import Distribution.Package ( Dependency(Dependency)
+                            , PackageName(PackageName)
+                            , PackageIdentifier(pkgName))
+
+
+import UtilsFromGhcMod
 
 type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
@@ -106,12 +130,39 @@ ghcOptionToGhcPKg (x:xs) = case x of "-no-user-package-db" -> "--no-user-package
                                      "-package-db"         -> ["--package-db", head xs] ++ ghcOptionToGhcPKg (tail xs)
                                      _                     -> error $ "Unknown GHC option: " ++ show (x:xs) -- FIXME Other cases?
 
--- | Use ghcmod's API to get the GHC options for a project. This uses 'GM.findCradle' to get
+-- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle' to get
 -- a sandbox (if it exists).
 getGhcOptionsViaGhcMod :: IO GhcOptions
-getGhcOptionsViaGhcMod = GhcOptions . cradlePackageDbOpts <$> GM.findCradle
+getGhcOptionsViaGhcMod = GhcOptions . cradlePackageDbOpts <$> findCradle
 
--- |Set GHC options and run 'Packages.initPackages' in the 'GhcMonad'.
+getGHCOptionsViaCradle :: IO [GHCOption]
+getGHCOptionsViaCradle = do
+    c <- findCradle
+    pkgDesc <- GhcMonad.liftIO $ parseCabalFile $ fromJust $ cradleCabalFile c
+    let binfo = head $ cabalAllBuildInfo pkgDesc
+    getGHCOptions [] c (fromJust $ cradleCabalDir c) binfo
+
+-- modifyDFlags :: [String] -> IO DynFlags
+modifyDFlags ghcOpts0 dflags0 =
+    defaultErrorHandler defaultFatalMessager defaultFlushOut $
+        runGhc (Just libdir) $ do
+            -- dflags0 <- getSessionDynFlags
+
+            (GhcOptions ghcOpts1) <- GhcMonad.liftIO $ getGhcOptionsViaGhcMod
+            ghcOpts2 <- GhcMonad.liftIO $ getGHCOptionsViaCradle
+
+            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
+            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
+
+            (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0)
+
+            let dflags2 = dflags1 { hscTarget = HscInterpreted
+                                  , ghcLink = LinkInMemory
+                                  }
+
+            return dflags2
+
+-- |Set GHC options and run 'initPackages' in 'GhcMonad'.
 --
 -- Typical use:
 --
@@ -121,25 +172,10 @@ getGhcOptionsViaGhcMod = GhcOptions . cradlePackageDbOpts <$> GM.findCradle
 -- >        -- do stuff
 setDynamicFlags :: GhcOptions -> DynFlags -> Ghc DynFlags
 setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
-    -- FIXME parse the language options like Opt_TemplateHaskell from the source file.
-
-    let dflags1 = foldl xopt_set dflags0 [ Opt_Cpp, Opt_ImplicitPrelude, Opt_MagicHash, Opt_MagicHash
-                                         , Opt_TemplateHaskell, Opt_QuasiQuotes, Opt_OverloadedStrings
-                                         , Opt_TypeFamilies, Opt_FlexibleContexts, Opt_GADTs
-                                         , Opt_MultiParamTypeClasses] -- FIXME What if the user does not want an implicit prelude?
-        dflags2 = dflags1 { hscTarget = HscInterpreted
-                          , ghcLink = LinkInMemory
-                          }
-
-    (GhcOptions packageGHCOpts) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
-
-    (dflags3, _, _) <- GHC.parseDynamicFlags dflags2 (map SrcLoc.noLoc $ packageGHCOpts ++ extraGHCOpts) -- FIXME check for errors/warnings?
-
-    setSessionDynFlags dflags3
-
-    GhcMonad.liftIO $ Packages.initPackages dflags3
-
-    return dflags3
+    dflags1 <- GhcMonad.liftIO $ modifyDFlags extraGHCOpts dflags0
+    setSessionDynFlags dflags1
+    GhcMonad.liftIO $ Packages.initPackages dflags1
+    return dflags1
 
 -- |Read the textual imports in a file.
 --
@@ -343,15 +379,6 @@ moduleOfQualifiedName qn = if null bits
                                 then Nothing
                                 else Just $ intercalate "." bits
   where bits = reverse $ drop 1 $ reverse $ separateBy '.' qn
-
--- listifySpans and listifyStaged are copied from ghcmod/Language/Haskell/GhcMod/Info.hs
-listifySpans :: Typeable a => TypecheckedSource -> (Int, Int) -> [Located a]
-listifySpans tcs lc = listifyStaged TypeChecker p tcs
-  where
-    p (L spn _) = isGoodSrcSpan spn && spn `spans` lc
-
-listifyStaged :: Typeable r => Stage -> (r -> Bool) -> GenericQ [r]
-listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 
 -- | Find the possible qualified names for the symbol at line/col in the given Haskell file and module.
 --
@@ -568,19 +595,19 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 --
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO ()
-guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcopts ghcPkgOpts = do
+guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcPkgOpts = do
     putStrLn $ "targetFile: " ++ targetFile
     putStrLn $ "targetModule: " ++ targetModule
     putStrLn $ "symbol: " ++ show symbol
     putStrLn $ "line nr: " ++ show lineNr
     putStrLn $ "col nr: " ++ show colNr
 
-    textualImports <- getTextualImports ghcopts targetFile targetModule
+    textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
     let haskellModuleNames = map (modName . toHaskellModule) textualImports
     putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
 
-    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName ghcopts targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
+    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
 
     putStrLn $ "qualified names: " ++ show qnames
 
@@ -610,7 +637,7 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcopts ghcPkgOpts =
 
     let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-    final <- filter allJust <$> (lookupSymbol ghcopts targetFile targetModule symbol'' haskellModuleNames' >>= mapM (findHaddockModule symbol'' smatches ghcPkgOpts))
+    final <- filter allJust <$> (lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames' >>= mapM (findHaddockModule symbol'' smatches ghcPkgOpts))
 
     forM_ final $ \(importedFrom, haddock, foundModule, base) ->
                         do let importedFrom' = fromJust importedFrom

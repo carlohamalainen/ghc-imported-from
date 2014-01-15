@@ -5,14 +5,14 @@ import Data.Maybe
 import System.Environment
 import System.IO()
 
--- import Control.Applicative ((<$>))
--- import Control.Monad (forM_)
--- import Language.Haskell.GhcMod as GM
--- import Language.Haskell.GhcMod.Internal as GMI
--- import Distribution.PackageDescription as PD
--- import Outputable (ppr, showSDoc)
--- import DynFlags (tracingDynFlags, xopt, ExtensionFlag(..))
--- import qualified GHC
+import Control.Applicative ((<$>))
+import Control.Monad (forM_)
+import Language.Haskell.GhcMod as GM
+import Language.Haskell.GhcMod.Internal as GMI
+import Distribution.PackageDescription as PD
+import Outputable (ppr, showSDoc)
+import DynFlags (tracingDynFlags, xopt, ExtensionFlag(..))
+import qualified GHC
 
 main :: IO ()
 main = do
