@@ -151,8 +151,8 @@ modifyDFlags ghcOpts0 dflags0 =
             (GhcOptions ghcOpts1) <- GhcMonad.liftIO $ getGhcOptionsViaGhcMod
             ghcOpts2 <- GhcMonad.liftIO $ getGHCOptionsViaCradle
 
-            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
-            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
+            GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
+            GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
 
             (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0)
 
@@ -437,7 +437,7 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["find-module", m', "--simple-output"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["find-module", m', "--simple-output"] ++ ["--global"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -457,7 +457,7 @@ ghcPkgHaddockUrl :: GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["field", p, "haddock-html"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["field", p, "haddock-html"] ++ ["--global"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
