@@ -437,7 +437,7 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["find-module", m', "--simple-output"] ++ ["--global"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["find-module", m', "--simple-output"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -457,7 +457,7 @@ ghcPkgHaddockUrl :: GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["field", p, "haddock-html"] ++ ["--global"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
