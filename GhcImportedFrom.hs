@@ -58,7 +58,7 @@ import Name
 import Outputable
 import RdrName
 import System.Directory
-import System.Environment
+import System.Environment()
 import System.FilePath
 import System.IO
 import System.Process
@@ -72,10 +72,8 @@ import qualified SrcLoc
 import qualified Safe
 
 import Language.Haskell.GhcMod as GM
-import Language.Haskell.GhcMod.Internal as GMI
-import Distribution.PackageDescription as PD
-import Outputable (ppr, showSDoc)
-import DynFlags (tracingDynFlags, xopt, ExtensionFlag(..))
+import Language.Haskell.GhcMod.Internal as GMI()
+import Distribution.PackageDescription as PD()
 
 type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
 
@@ -133,7 +131,7 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
                           , ghcLink = LinkInMemory
                           }
 
-    (GhcOptions packageGHCOpts) <- GhcMonad.liftIO $ getGhcOptionsViaGhcMod
+    (GhcOptions packageGHCOpts) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
 
     (dflags3, _, _) <- GHC.parseDynamicFlags dflags2 (map SrcLoc.noLoc $ packageGHCOpts ++ extraGHCOpts) -- FIXME check for errors/warnings?
 
@@ -156,16 +154,16 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
 -- See also 'toHaskellModule' and 'getSummary'.
 
 getTextualImports :: GhcOptions -> FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
-getTextualImports ghcOpts targetFile targetModuleName = do
-    modSum <- getSummary ghcOpts targetFile targetModuleName
+getTextualImports ghcopts targetFile targetModuleName = do
+    modSum <- getSummary ghcopts targetFile targetModuleName
     return $ ms_textual_imps modSum
 
 -- | Get the module summary for a particular file/module.
 getSummary :: GhcOptions -> FilePath -> String -> IO ModSummary
-getSummary ghcOpts targetFile targetModuleName =
+getSummary ghcopts targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
-            getSessionDynFlags >>= setDynamicFlags ghcOpts
+            getSessionDynFlags >>= setDynamicFlags ghcopts
 
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
@@ -176,7 +174,7 @@ getSummary ghcOpts targetFile targetModuleName =
             setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName]
 
             -- Extract the module summary.
-            (getModSummary $ mkModuleName targetModuleName) >>= return
+            getModSummary (mkModuleName targetModuleName)
 
 -- |Convenience function for converting an 'GHC.ImportDecl' to a 'HaskellModule'.
 --
@@ -271,10 +269,10 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
 --      (and originally defined in `base:GHC.List')])]
 
 lookupSymbol :: GhcOptions -> FilePath -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
-lookupSymbol ghcOpts targetFile targetModuleName qualifiedSymbol importList =
+lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
-        getSessionDynFlags >>= setDynamicFlags ghcOpts
+        getSessionDynFlags >>= setDynamicFlags ghcopts
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -367,10 +365,10 @@ listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 -- "Data.Map.Base.fromList"
 
 qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> IO [String]
-qualifiedName ghcOpts targetFile targetModuleName lineNr colNr importList =
+qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
-        getSessionDynFlags >>= setDynamicFlags ghcOpts
+        getSessionDynFlags >>= setDynamicFlags ghcopts
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
@@ -412,7 +410,7 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["find-module", m', "--simple-output"] ++ (ghcOptionToGhcPKg gopts) ++ extraGHCPkgOpts
+    let opts = ["find-module", m', "--simple-output"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -432,7 +430,7 @@ ghcPkgHaddockUrl :: GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
-    let opts = ["field", p, "haddock-html"] ++ (ghcOptionToGhcPKg gopts) ++ extraGHCPkgOpts
+    let opts = ["field", p, "haddock-html"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
@@ -570,19 +568,19 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 --
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO ()
-guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcOpts ghcPkgOpts = do
+guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcopts ghcPkgOpts = do
     putStrLn $ "targetFile: " ++ targetFile
     putStrLn $ "targetModule: " ++ targetModule
     putStrLn $ "symbol: " ++ show symbol
     putStrLn $ "line nr: " ++ show lineNr
     putStrLn $ "col nr: " ++ show colNr
 
-    textualImports <- getTextualImports ghcOpts targetFile targetModule
+    textualImports <- getTextualImports ghcopts targetFile targetModule
 
     let haskellModuleNames = map (modName . toHaskellModule) textualImports
     putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
 
-    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName ghcOpts targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
+    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName ghcopts targetFile targetModule lineNr colNr haskellModuleNames :: IO [String]
 
     putStrLn $ "qualified names: " ++ show qnames
 
@@ -612,7 +610,7 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr ghcOpts ghcPkgOpts =
 
     let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-    final <- filter allJust <$> (lookupSymbol ghcOpts targetFile targetModule symbol'' haskellModuleNames' >>= mapM (findHaddockModule symbol'' smatches ghcPkgOpts))
+    final <- filter allJust <$> (lookupSymbol ghcopts targetFile targetModule symbol'' haskellModuleNames' >>= mapM (findHaddockModule symbol'' smatches ghcPkgOpts))
 
     forM_ final $ \(importedFrom, haddock, foundModule, base) ->
                         do let importedFrom' = fromJust importedFrom

@@ -64,14 +64,14 @@ main = do
 
     -- assert: rest !! 0 == "--ghc-options"
 
-    let n = fromJust $ findIndex (== "--ghc-pkg-options") rest
+    let n = fromJust $ elemIndex "--ghc-pkg-options" rest
 
     -- assert: rest !! n == "--ghc-pkg-options"
 
     let ghcOpts    = GhcOptions $ tail $ take n rest
     let ghcPkgOpts = GhcPkgOptions $ drop (n + 1) rest
 
-    putStrLn $ show ghcOpts
-    putStrLn $ show ghcPkgOpts
+    print ghcOpts
+    print ghcPkgOpts
 
     guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOpts ghcPkgOpts
