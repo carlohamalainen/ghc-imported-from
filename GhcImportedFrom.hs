@@ -74,12 +74,6 @@ import qualified Safe
 import Language.Haskell.GhcMod
 import Language.Haskell.GhcMod.Internal
 import Distribution.PackageDescription
-import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
-import Distribution.Version (Version)
-
-
-
-import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration (finalizePackageDescription)
 import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
@@ -142,14 +136,14 @@ getGHCOptionsViaCradle = do
     let binfo = head $ cabalAllBuildInfo pkgDesc
     getGHCOptions [] c (fromJust $ cradleCabalDir c) binfo
 
--- modifyDFlags :: [String] -> IO DynFlags
+modifyDFlags :: [String] -> DynFlags -> IO DynFlags
 modifyDFlags ghcOpts0 dflags0 =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
             -- dflags0 <- getSessionDynFlags
 
-            (GhcOptions ghcOpts1) <- GhcMonad.liftIO $ getGhcOptionsViaGhcMod
-            ghcOpts2 <- GhcMonad.liftIO $ getGHCOptionsViaCradle
+            (GhcOptions ghcOpts1) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
+            ghcOpts2 <- GhcMonad.liftIO getGHCOptionsViaCradle
 
             GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
             GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
@@ -430,10 +424,10 @@ readRestOfHandle h = do
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-ghcPkgFindModule :: GhcPkgOptions -> ModuleName -> IO (Maybe String)
+ghcPkgFindModule :: GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
-    let m' = showSDoc tracingDynFlags (ppr m)
+    let m' = m -- showSDoc tracingDynFlags (ppr m)
 
     (GhcOptions gopts) <- getGhcOptionsViaGhcMod :: IO GhcOptions
 
@@ -469,13 +463,10 @@ ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
 
     return $ Safe.lastMay $ words line
 
--- | Convert a 'ModuleName' to a 'String', e.g. @Data.List@ to @Data-List.html@.
-moduleNameToHtmlFile :: ModuleName -> String
-moduleNameToHtmlFile m =  base' ++ ".html"
-    where base = showSDoc tracingDynFlags $ ppr m
-          base' = map f base
-
-          f :: Char -> Char
+-- | Convert a module name string, e.g. @Data.List@ to @Data-List.html@.
+moduleNameToHtmlFile :: String -> String
+moduleNameToHtmlFile m =  map f m ++ ".html"
+    where f :: Char -> Char
           f '.' = '-'
           f c   = c
 
@@ -555,19 +546,35 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
           substringP _ []  = Nothing
           substringP sub str = if sub `isPrefixOf` str then Just 0 else fmap (+1) $ substringP sub (tail str)
 
+bestPrefixMatches :: Name -> [GlobalRdrElt] -> [String]
+bestPrefixMatches name lookUp = x''
+    where name' = showSDoc tracingDynFlags $ ppr name
+          name'' = fromJust $ moduleOfQualifiedName name' -- FIXME dangerous fromJust
+          x   = concatMap symbolImportedFrom lookUp
+          x'  = map (showSDoc tracingDynFlags . ppr) x
+          x'' = filter (name'' `isPrefixOf`) x'
+
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
-findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO (Maybe ModuleName, Maybe String, Maybe String, Maybe String)
+findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO (Maybe String, Maybe String, Maybe String, Maybe String)
 findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
     putStrLn $ "name: " ++ showSDoc tracingDynFlags (ppr name)
 
     let definedIn = nameModule name
+        bpms = bestPrefixMatches name lookUp
         importedFrom = if null smatches
-                            then Safe.headMay $ concatMap symbolImportedFrom lookUp :: Maybe ModuleName
-                            else (Just . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+                            -- then Safe.headMay $ concatMap symbolImportedFrom lookUp :: Maybe ModuleName
+                            -- FIXME should really return *all* of these matches, not just the first one. We
+                            -- can't be certain that we're choosing the best one. Ditto for all other
+                            -- uses of head or Safe.headMay.
+                            then if null bpms then Safe.headMay $ map (showSDoc tracingDynFlags . ppr) $ concatMap symbolImportedFrom lookUp
+                                              else Safe.headMay bpms :: Maybe String
+                            else (Just . (showSDoc tracingDynFlags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
 
     putStrLn $ "definedIn: " ++ showSDoc tracingDynFlags (ppr definedIn)
+    putStrLn $ "bpms: " ++ show bpms
     putStrLn $ "concat $ map symbolImportedFrom lookUp: " ++ showSDoc tracingDynFlags (ppr $ concatMap symbolImportedFrom lookUp)
+
 
     putStrLn $ "importedFrom: " ++ showSDoc tracingDynFlags (ppr importedFrom)
 
