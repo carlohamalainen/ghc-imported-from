@@ -436,11 +436,9 @@ readRestOfHandle h = do
 ghcPkgFindModule :: GhcPkgOptions -> String -> WriterT [String] IO (Maybe String)
 ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
-    let m' = m -- showSDoc tracingDynFlags (ppr m)
+    (GhcOptions gopts) <- CMT.liftIO getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
 
-    (GhcOptions gopts) <- CMT.liftIO $ getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
-
-    let opts = ["find-module", m', "--simple-output"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     myTell $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- CMT.liftIO $ createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -458,7 +456,7 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 ghcPkgHaddockUrl :: GhcPkgOptions -> String -> WriterT [String] IO (Maybe String)
 ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
-    (GhcOptions gopts) <- CMT.liftIO $ getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
+    (GhcOptions gopts) <- CMT.liftIO getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
 
     let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
     myTell $ "ghc-pkg "++ show opts
@@ -586,10 +584,7 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 
     myTell $ "importedFrom: " ++ show importedFrom
 
-    ghcFindModRes <- if isJust importedFrom then ghcPkgFindModule ghcPkgOpts (fromJust importedFrom)
-                                            else return Nothing
-
-    let foundModule = ghcFindModRes
+    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
     myTell $ "ghcPkgFindModule result: " ++ show foundModule
 
     let base = moduleNameToHtmlFile <$> importedFrom
@@ -597,8 +592,7 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
     myTell $ "base: : " ++ show base
 
     -- haddock <- fmap (filter ('"' /=)) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
-    haddock <- if isJust foundModule then ghcPkgHaddockUrl ghcPkgOpts (fromJust foundModule)
-                                     else return Nothing
+    haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
 
     myTell $ "haddock: " ++ show haddock
     myTell $ "foundModule: " ++ show foundModule
@@ -608,8 +602,8 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 myTell :: MonadWriter [t] m => t -> m ()
 myTell x = tell [x]
 
-final999 :: (Maybe String, Maybe String, Maybe String, Maybe String) -> WriterT [String] IO String
-final999 (importedFrom, haddock, foundModule, base) = do
+matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> WriterT [String] IO String
+matchToUrl (importedFrom, haddock, foundModule, base) = do
     let importedFrom' = fromJust importedFrom
         haddock'      = fromJust haddock
         foundModule'  = fromJust foundModule
@@ -677,30 +671,10 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0
 
     let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-    f1 <- CMT.liftIO $ lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
-    f2 <- filter allJust <$> mapM (findHaddockModule symbol'' smatches ghcPkgOpts) f1
-    let final = f2
+    final1 <- CMT.liftIO $ lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
+    final2 <- filter allJust <$> mapM (findHaddockModule symbol'' smatches ghcPkgOpts) final1
 
-    blarp <- mapM final999 final
+    final3 <- mapM matchToUrl final2
 
-    if null blarp then return $ Left "No matches found."
-                  else return $ Right $ head blarp
-
-    {-
-    forM_ final $ \(importedFrom, haddock, foundModule, base) ->
-                        do let importedFrom' = fromJust importedFrom
-                               haddock'      = fromJust haddock
-                               foundModule'  = fromJust foundModule
-                               base'         = fromJust base
-
-                               f = haddock' </> base'
-
-                           e <- CMT.liftIO $ doesFileExist f
-
-                           if e then myTell $ "SUCCESS: " ++ "file://" ++ f
-                                else do myTell $ "f:  " ++ show f
-                                        myTell $ "foundModule: " ++ show foundModule'
-                                        myTell $ "SUCCESS: " ++ toHackageUrl f foundModule' (showSDoc tracingDynFlags (ppr importedFrom'))
-
-    return $ Right "FIXME"
-    -}
+    return (if null final3 then Left "No matches found."
+                           else Right $ head final3)

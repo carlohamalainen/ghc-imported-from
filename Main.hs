@@ -15,44 +15,8 @@ import Outputable (ppr, showSDoc)
 import DynFlags (tracingDynFlags, xopt, ExtensionFlag(..))
 import qualified GHC
 
--- main :: IO ()
+main :: IO ()
 main = do
-    {-
-    -- getSummary :: GhcOptions -> FilePath -> String -> IO ModSummary
-    x <- getSummary (GhcOptions ["-no-user-package-db", "-package-db", "/home/carlo/work/github/cli-yesod-blog/blog/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d"])
-                    "Handler/Home.hs" "Handler.Home"
-
-    let ons = GHC.extensions $ GHC.ms_hspp_opts x
-
-    print $ length ons
-
-    let eflags = GHC.extensionFlags $ GHC.ms_hspp_opts x
-
-    print $ xopt Opt_Rank2Types $ GHC.ms_hspp_opts x
-    print $ xopt Opt_AlternativeLayoutRule $ GHC.ms_hspp_opts x
-    print $ xopt Opt_ScopedTypeVariables $ GHC.ms_hspp_opts x
-
-    c <- GM.findCradle
-
-    print $ cradlePackageDbOpts c
-    -}
-
-
-    {-
-    let cf = fromJust $ GM.cradleCabalFile c
-
-    buildInfo <- cabalAllBuildInfo <$> GMI.parseCabalFile cf
-
-    let opts = concatMap PD.defaultExtensions buildInfo ++ concatMap PD.otherExtensions buildInfo
-
-    putStrLn $ show opts
-
-    print "done"
-
-    -- cabalAllBuildInfo :: PackageDescription -> [BuildInfo]
-    -}
-
-
     args <- getArgs
 
     -- quick and dirty argument parsing, no error checking
