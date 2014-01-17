@@ -7,6 +7,7 @@ import System.IO()
 
 import Control.Applicative ((<$>))
 import Control.Monad (forM_)
+import Control.Monad.Writer
 import Language.Haskell.GhcMod as GM
 import Language.Haskell.GhcMod.Internal as GMI
 import Distribution.PackageDescription as PD
@@ -14,7 +15,7 @@ import Outputable (ppr, showSDoc)
 import DynFlags (tracingDynFlags, xopt, ExtensionFlag(..))
 import qualified GHC
 
-main :: IO ()
+-- main :: IO ()
 main = do
     {-
     -- getSummary :: GhcOptions -> FilePath -> String -> IO ModSummary
@@ -74,4 +75,8 @@ main = do
     print ghcOpts
     print ghcPkgOpts
 
-    guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOpts ghcPkgOpts
+    (res, log) <- runWriterT $ guessHaddockUrl targetFile targetModule symbol lineNo colNo ghcOpts ghcPkgOpts
+
+    case res of Right x  -> do forM_ log putStrLn
+                               putStrLn $ "SUCCESS: " ++ x
+                Left err -> putStrLn $ "FAIL"
