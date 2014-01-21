@@ -14,8 +14,12 @@ build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
 
+extra-source-files:  test/*.hs
+                     test/data/*.hs
+
 library
     exposed-modules: GhcImportedFrom
+    other-modules:   UtilsFromGhcMod
 
     other-extensions:    CPP, Rank2Types
     build-depends: base >=4.6 && <4.7

@@ -16,6 +16,8 @@
 -- Synopsis: Attempt to guess the location of the Haddock HTML
 -- documentation for a given symbol in a particular module, file, and
 -- line/col location.
+--
+-- Latest development version: <https://github.com/carlohamalainen/ghc-imported-from>.
 
 module GhcImportedFrom ( QualifiedName(..)
                        , Symbol(..)

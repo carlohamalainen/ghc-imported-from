@@ -16,14 +16,9 @@ isRight = either (const False) (const True)
 spec :: Spec
 spec = do
     describe "checkImportedFrom" $ do
-        it "can look up String in a stand-alone file" $ do
-            withDirectory_ "test/data" $ do
-                res <- testForTest
-                res `shouldSatisfy` ("1.0 yes" `isInfixOf`)
-
         it "can look up Maybe" $ do
             withDirectory_ "test/data" $ do
-                (res, _) <- runWriterT $ guessHaddockUrl "Muddle.hs" "Muddle" "Maybe" 11 11 (GhcOptions []) (GhcPkgOptions [])
+                (res, _) <- runWriterT $ guessHaddockUrl "Muddle.hs" "Muddle" "Maybe"         11 11 (GhcOptions []) (GhcPkgOptions [])
                 res `shouldSatisfy` isRight
 
         it "can look up Just" $ do
