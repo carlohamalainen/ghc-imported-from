@@ -3,27 +3,34 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-{-
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  GhcImportedFrom
+-- Copyright   :  Carlo Hamalainen 2013, 2014
+-- License     :  BSD3
+--
+-- Maintainer  :  carlo@carlo-hamalainen.net
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Synopsis: Attempt to guess the location of the Haddock HTML
+-- documentation for a given symbol in a particular module, file, and
+-- line/col location.
 
-Synopsis: Attempt to guess the location of the Haddock HTML
-documentation for a given symbol in a particular module, file, and
-line/col location.
-
-See the test directory for some example usage.
-
-Author: Carlo Hamalainen <carlo@carlo-hamalainen.net>
-
--}
-
-module GhcImportedFrom ( QualifiedName
-                       , Symbol
-                       , GhcOptions (..)
-                       , GhcPkgOptions (..)
-                       , HaskellModule (..)
+module GhcImportedFrom ( QualifiedName(..)
+                       , Symbol(..)
+                       , GhcOptions(..)
+                       , GhcPkgOptions(..)
+                       , HaskellModule(..)
+                       , ghcOptionToGhcPKg
+                       , getGhcOptionsViaGhcMod
+                       , getGHCOptionsViaCradle
+                       , modifyDFlags
                        , setDynamicFlags
                        , getTextualImports
                        , getSummary
                        , toHaskellModule
+                       , lookupSymbol
                        , symbolImportedFrom
                        , postfixMatch
                        , moduleOfQualifiedName
@@ -31,14 +38,13 @@ module GhcImportedFrom ( QualifiedName
                        , ghcPkgFindModule
                        , ghcPkgHaddockUrl
                        , moduleNameToHtmlFile
-                       , lookupSymbol
                        , expandMatchingAsImport
                        , specificallyMatches
-                       , guessHaddockUrl
+                       , toHackageUrl
+                       , bestPrefixMatches
                        , findHaddockModule
-                       , getGhcOptionsViaGhcMod
-                       , ghcOptionToGhcPKg
-                       , testForTest
+                       , matchToUrl
+                       , guessHaddockUrl
                        ) where
 
 import Control.Applicative
@@ -47,7 +53,6 @@ import Control.Monad.Instances()
 import Control.Monad.Writer
 import Control.Monad.Trans as CMT
 import Data.Function (on)
-import Data.Generics hiding (typeOf)
 import Data.List
 import Data.Maybe
 import Data.Typeable()
@@ -56,7 +61,7 @@ import DynFlags
 import FastString
 import GHC
 import GHC.Paths (libdir)
-import GHC.SYB.Utils
+import GHC.SYB.Utils()
 import HscTypes
 import Name
 import Outputable
@@ -77,32 +82,12 @@ import qualified Safe
 
 import Language.Haskell.GhcMod
 import Language.Haskell.GhcMod.Internal
-import Distribution.PackageDescription
-import Distribution.PackageDescription.Configuration (finalizePackageDescription)
-import Distribution.PackageDescription.Parse (readPackageDescription)
-import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
-import Distribution.Simple.Program (ghcProgram)
-import Distribution.Simple.Program.Types (programName, programFindVersion)
-import Distribution.System (buildPlatform)
-import Distribution.Text (display)
-import Distribution.Verbosity (silent)
-import Distribution.Version (Version)
-
-import Control.Exception (throwIO)
-
-import Distribution.Package ( Dependency(Dependency)
-                            , PackageName(PackageName)
-                            , PackageIdentifier(pkgName))
-
 
 import UtilsFromGhcMod
 
-testForTest :: IO String
-testForTest = return "foo bar 1.0 yes this worked"
+type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
 
-type QualifiedName = String -- ^ A qualified name, e.g. "Foo.bar".
-
-type Symbol = String -- ^ A symbol, possibly qualified, e.g. "bar" or "Foo.bar".
+type Symbol = String -- ^ A symbol, possibly qualified, e.g. @bar@ or @Foo.bar@.
 
 newtype GhcOptions
     -- | List of user-supplied GHC options, refer to @tets@ subdirectory for example usage. Note that
@@ -131,11 +116,11 @@ ghcOptionToGhcPKg (x:xs) = case x of "-no-user-package-db" -> "--no-user-package
                                      "-package-db"         -> ["--package-db", head xs] ++ ghcOptionToGhcPKg (tail xs)
                                      _                     -> error $ "Unknown GHC option: " ++ show (x:xs) -- FIXME Other cases?
 
--- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle' to get
--- a sandbox (if it exists).
+-- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle', 'cradlePackageDbOpts', and 'GhcOptions'.
 getGhcOptionsViaGhcMod :: IO GhcOptions
 getGhcOptionsViaGhcMod = GhcOptions . cradlePackageDbOpts <$> findCradle
 
+-- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle' and 'getGHCOptions.'
 getGHCOptionsViaCradle :: IO [GHCOption]
 getGHCOptionsViaCradle = do
     c <- findCradle
@@ -143,20 +128,20 @@ getGHCOptionsViaCradle = do
     let binfo = head $ cabalAllBuildInfo pkgDesc
     getGHCOptions [] c (fromJust $ cradleCabalDir c) binfo
 
+-- | Add user-supplied GHC options to those discovered via ghc-mod.
 modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
-            -- dflags0 <- getSessionDynFlags
-
             (GhcOptions ghcOpts1) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
             ghcOpts2 <- GhcMonad.liftIO getGHCOptionsViaCradle
 
+            -- FIXME need to add ghcOpts1 and ghcOpts2 to the WriterT, but here
+            -- we are inside the GhcMonad, so need to do some transformer stuff.
+            -- Instead we laboriously return ghcOpts1 and ghcOpts2 up the call chain.
             -- GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
             -- GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
 
-            -- FIXME need to add ghcOpts1 and ghcOpts2 to the WriterT, but here
-            -- we are inside the GhcMonad, so need to do some transformer stuff.
             (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0)
 
             let dflags2 = dflags1 { hscTarget = HscInterpreted
@@ -176,8 +161,8 @@ modifyDFlags ghcOpts0 dflags0 =
 setDynamicFlags :: GhcMonad m => GhcOptions -> DynFlags -> m ([String], [GHCOption], DynFlags)
 setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
     (ghcOpts1, ghcOpts2, dflags1) <- GhcMonad.liftIO $ modifyDFlags extraGHCOpts dflags0
-    setSessionDynFlags dflags1
-    GhcMonad.liftIO $ Packages.initPackages dflags1
+    void $ setSessionDynFlags dflags1
+    _ <- GhcMonad.liftIO $ Packages.initPackages dflags1
     return (ghcOpts1, ghcOpts2, dflags1)
 
 -- |Read the textual imports in a file.
@@ -192,28 +177,35 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
 --
 -- See also 'toHaskellModule' and 'getSummary'.
 
-getTextualImports :: GhcOptions -> FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
+getTextualImports :: GhcOptions -> FilePath -> String -> WriterT [String] IO [SrcLoc.Located (ImportDecl RdrName)]
 getTextualImports ghcopts targetFile targetModuleName = do
-    modSum <- getSummary ghcopts targetFile targetModuleName
+    (ghcOpts1, ghcOpts2, modSum) <- CMT.liftIO $ getSummary ghcopts targetFile targetModuleName
+
+    myTell $ "getTextualImports: ghcOpts1: " ++ show ghcOpts1
+    myTell $ "getTextualImports: ghcOpts2: " ++ show ghcOpts2
+
     return $ ms_textual_imps modSum
 
--- | Get the module summary for a particular file/module.
-getSummary :: GhcOptions -> FilePath -> String -> IO ModSummary
+-- | Get the module summary for a particular file/module. The first and second components of the
+-- return value are @ghcOpts1@ and @ghcOpts2@; see 'setDynamicFlags'.
+getSummary :: GhcOptions -> FilePath -> String -> IO ([String], [GHCOption], ModSummary)
 getSummary ghcopts targetFile targetModuleName =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
-            getSessionDynFlags >>= setDynamicFlags ghcopts
+            (ghcOpts1, ghcOpts2, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
             -- Load the target file (e.g. "Muddle.hs").
             target <- guessTarget targetFile Nothing
             setTargets [target]
-            load LoadAllTargets
+            _ <- load LoadAllTargets
 
             -- Set the context by loading the module, e.g. "Muddle" which is in "Muddle.hs".
             setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName]
 
             -- Extract the module summary.
-            getModSummary (mkModuleName targetModuleName)
+            modSum <- getModSummary (mkModuleName targetModuleName)
+
+            return (ghcOpts1, ghcOpts2, modSum)
 
 -- |Convenience function for converting an 'GHC.ImportDecl' to a 'HaskellModule'.
 --
@@ -311,11 +303,11 @@ lookupSymbol :: GhcOptions -> FilePath -> String -> String -> [String] -> IO [(N
 lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
-        getSessionDynFlags >>= setDynamicFlags ghcopts
+        _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
-        load LoadAllTargets
+        _ <- load LoadAllTargets
 
         -- Bring in the target module and its imports.
         setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList)
@@ -398,11 +390,11 @@ qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> I
 qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
-        getSessionDynFlags >>= setDynamicFlags ghcopts
+        _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
         target <- guessTarget targetFile Nothing
         setTargets [target]
-        load LoadAllTargets
+        _ <- load LoadAllTargets
 
         setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList)
 
@@ -552,6 +544,8 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
           substringP _ []  = Nothing
           substringP sub str = if sub `isPrefixOf` str then Just 0 else fmap (+1) $ substringP sub (tail str)
 
+-- | When we use 'parseName' to convert a 'String' to a 'Name' we get a list of matches instead of
+-- a unique match, so we end up having to guess the best match based on the qualified name.
 bestPrefixMatches :: Name -> [GlobalRdrElt] -> [String]
 bestPrefixMatches name lookUp = x''
     where name' = showSDoc tracingDynFlags $ ppr name
@@ -602,6 +596,7 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 myTell :: MonadWriter [t] m => t -> m ()
 myTell x = tell [x]
 
+-- | Convert our match to a URL, either @file://@ if the file exists, or to @hackage.org@ otherwise.
 matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> WriterT [String] IO String
 matchToUrl (importedFrom, haddock, foundModule, base) = do
     let importedFrom' = fromJust importedFrom
@@ -636,7 +631,7 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0
     myTell $ "line nr: " ++ show lineNr
     myTell $ "col nr: " ++ show colNr
 
-    textualImports <- CMT.liftIO $ getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
+    textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
     let haskellModuleNames = map (modName . toHaskellModule) textualImports
     myTell $ "haskellModuleNames: " ++ show haskellModuleNames

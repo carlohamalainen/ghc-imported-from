@@ -1,24 +1,29 @@
 {-# LANGUAGE Rank2Types #-}
 
-{-
-
-The ghc-mod project has some very useful functions that are not
-exported, so here I've pulled out the few that I need. Credit for
-the code in this file is due to Kazu Yamamoto <kazu@iij.ad.jp>.
-
-* http://www.mew.org/~kazu/proj/ghc-mod/en/
-* https://github.com/kazu-yamamoto/ghc-mod
-
-(Hopefully this is ok since ghc-mod is licensed BSD3 as is this project.)
-
--}
-
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  UtilsFromGhcMod
+-- Copyright   :  Carlo Hamalainen 2013, 2014
+-- License     :  BSD3
+--
+-- Maintainer  :  carlo@carlo-hamalainen.net
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- The ghc-mod project has some very useful functions that are not
+-- exported, so here I've pulled out the few that I need. Credit for
+-- the code in this file is due to Kazu Yamamoto <kazu@iij.ad.jp>.
+--
+--      * <http://www.mew.org/~kazu/proj/ghc-mod/en>
+--
+--      * <https://github.com/kazu-yamamoto/ghc-mod>
+--
+-- Hopefully this is ok since ghc-mod and this project are both licensed BSD3.
 
 module UtilsFromGhcMod where
 
 import Control.Applicative
 import Data.Generics hiding (typeOf)
-import Data.Maybe
 import GHC
 import GHC.SYB.Utils
 import System.Directory
@@ -29,22 +34,12 @@ import Packages
 import Language.Haskell.GhcMod
 import Language.Haskell.GhcMod.Internal
 import Distribution.PackageDescription
-import Distribution.PackageDescription.Configuration (finalizePackageDescription)
-import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
 import Distribution.Simple.Program (ghcProgram)
 import Distribution.Simple.Program.Types (programName, programFindVersion)
-import Distribution.System (buildPlatform)
-import Distribution.Text (display)
 import Distribution.Verbosity (silent)
-import Distribution.Version (Version)
 
 import Control.Exception (throwIO)
-
-import Distribution.Package ( Dependency(Dependency)
-                            , PackageName(PackageName)
-                            , PackageIdentifier(pkgName))
-
 
 -- ghcmod/Language/Haskell/GhcMod/Info.hs
 listifySpans :: Typeable a => TypecheckedSource -> (Int, Int) -> [Located a]
@@ -57,7 +52,7 @@ listifyStaged :: Typeable r => Stage -> (r -> Bool) -> GenericQ [r]
 listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 
 -- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
-getGHCOptions  :: [GHCOption] -> Cradle -> [Char] -> BuildInfo -> IO [GHCOption]
+getGHCOptions  :: [GHCOption] -> Cradle -> String -> BuildInfo -> IO [GHCOption]
 getGHCOptions ghcopts cradle cdir binfo = do
     cabalCpp <- cabalCppOptions cdir
     let cpps = map ("-optP" ++) $ cppOptions binfo ++ cabalCpp
@@ -70,13 +65,12 @@ getGHCOptions ghcopts cradle cdir binfo = do
     libs = map ("-l" ++) $ extraLibs binfo
 
 -- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+-- modification: return $ if ... instead of if .. return
 cabalCppOptions :: FilePath -> IO [String]
 cabalCppOptions dir = do
     exist <- doesFileExist cabalMacro
-    if exist then
-        return ["-include", cabalMacro]
-      else
-        return []
+    return $ if exist then ["-include", cabalMacro]
+                      else []
   where
     cabalMacro = dir </> "dist/build/autogen/cabal_macros.h"
 
@@ -90,4 +84,4 @@ getGHC = do
     mv <- programFindVersion ghcProgram silent (programName ghcProgram)
     case mv of
         Nothing -> throwIO $ userError "ghc not found"
-        Just v  -> return $ v
+        Just v  -> return v

@@ -1,7 +1,8 @@
 name:                ghc-imported-from
 version:             0.1.0.0
-synopsis:            Find the Haddock module that a symbol          HaskelFor a given Haskell source file, determine where a symbol is imported from.
--- description:
+synopsis:            Find the Haddock documentation for a symbol.
+description:         Given a Haskell module and symbol, determine the URL to the Haddock documentation
+                     for that symbol.
 homepage:            https://github.com/carlohamalainen/ghc-imported-from
 license:             BSD3
 license-file:        LICENSE
@@ -36,6 +37,7 @@ library
 
 executable ghc-imported-from
   main-is:             Main.hs
+  GHC-Options:         -Wall
   -- other-modules:
   other-extensions:    CPP, Rank2Types
   build-depends: base >=4.6 && <4.7
@@ -58,6 +60,7 @@ executable ghc-imported-from
 
 Test-Suite spec
   Default-Language:     Haskell2010
+  GHC-Options:          -Wall
   Main-Is:              Spec.hs
   Hs-Source-Dirs:       test, .
   Type:                 exitcode-stdio-1.0
