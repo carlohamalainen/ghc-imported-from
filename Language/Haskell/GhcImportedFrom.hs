@@ -19,35 +19,36 @@
 --
 -- Latest development version: <https://github.com/carlohamalainen/ghc-imported-from>.
 
-module GhcImportedFrom ( QualifiedName(..)
-                       , Symbol(..)
-                       , GhcOptions(..)
-                       , GhcPkgOptions(..)
-                       , HaskellModule(..)
-                       , ghcOptionToGhcPKg
-                       , getGhcOptionsViaGhcMod
-                       , getGHCOptionsViaCradle
-                       , modifyDFlags
-                       , setDynamicFlags
-                       , getTextualImports
-                       , getSummary
-                       , toHaskellModule
-                       , lookupSymbol
-                       , symbolImportedFrom
-                       , postfixMatch
-                       , moduleOfQualifiedName
-                       , qualifiedName
-                       , ghcPkgFindModule
-                       , ghcPkgHaddockUrl
-                       , moduleNameToHtmlFile
-                       , expandMatchingAsImport
-                       , specificallyMatches
-                       , toHackageUrl
-                       , bestPrefixMatches
-                       , findHaddockModule
-                       , matchToUrl
-                       , guessHaddockUrl
-                       ) where
+module Language.Haskell.GhcImportedFrom (
+     QualifiedName(..)
+   , Symbol(..)
+   , GhcOptions(..)
+   , GhcPkgOptions(..)
+   , HaskellModule(..)
+   , ghcOptionToGhcPKg
+   , getGhcOptionsViaGhcMod
+   , getGHCOptionsViaCradle
+   , modifyDFlags
+   , setDynamicFlags
+   , getTextualImports
+   , getSummary
+   , toHaskellModule
+   , lookupSymbol
+   , symbolImportedFrom
+   , postfixMatch
+   , moduleOfQualifiedName
+   , qualifiedName
+   , ghcPkgFindModule
+   , ghcPkgHaddockUrl
+   , moduleNameToHtmlFile
+   , expandMatchingAsImport
+   , specificallyMatches
+   , toHackageUrl
+   , bestPrefixMatches
+   , findHaddockModule
+   , matchToUrl
+   , guessHaddockUrl
+   ) where
 
 import Control.Applicative
 import Control.Monad
@@ -85,7 +86,7 @@ import qualified Safe
 import Language.Haskell.GhcMod
 import Language.Haskell.GhcMod.Internal
 
-import UtilsFromGhcMod
+import Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
 
 type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
 

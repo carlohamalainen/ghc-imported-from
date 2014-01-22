@@ -20,7 +20,7 @@
 --
 -- Hopefully this is ok since ghc-mod and this project are both licensed BSD3.
 
-module UtilsFromGhcMod where
+module Language.Haskell.GhcImportedFrom.UtilsFromGhcMod where
 
 import Control.Applicative
 import Data.Generics hiding (typeOf)

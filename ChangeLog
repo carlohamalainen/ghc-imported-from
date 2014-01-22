@@ -1,0 +1,9 @@
+2014-01-22 v0.1.0.1
+
+	* Reorganised module structure to export
+	Language.Haskell.GhcImportedFrom instead of the bare top
+	level GhcImportedFrom.
+
+2014-01-22 v0.1.0.0
+
+	* Initial upload to hackage.haskell.org.

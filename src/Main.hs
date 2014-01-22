@@ -1,4 +1,4 @@
-import GhcImportedFrom
+import Language.Haskell.GhcImportedFrom
 
 import Data.List
 import Data.Maybe
