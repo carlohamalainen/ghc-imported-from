@@ -27,7 +27,7 @@ library
                  , ghc >=7.6 && <7.7
                  , ghc-paths >=0.1 && <0.2
                  , ghc-syb-utils
-                 , Cabal
+                 , Cabal >= 1.18
                  , ghc-mod
                  , filepath
                  , safe
@@ -49,7 +49,7 @@ executable ghc-imported-from
                , ghc >=7.6 && <7.7
                , ghc-paths >=0.1 && <0.2
                , ghc-syb-utils
-               , Cabal
+               , Cabal >= 1.18
                , ghc-mod
                , ghc-imported-from
                , filepath
@@ -76,7 +76,7 @@ Test-Suite spec
                       , ghc >=7.6 && <7.7
                       , ghc-paths >=0.1 && <0.2
                       , ghc-syb-utils
-                      , Cabal
+                      , Cabal >= 1.18
                       , ghc-mod
                       , filepath
                       , safe
