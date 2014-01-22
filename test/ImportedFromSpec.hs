@@ -4,7 +4,7 @@ module ImportedFromSpec where
 
 import Control.Monad.Writer
 import Data.List (isSuffixOf, isInfixOf, isPrefixOf)
-import GhcImportedFrom
+import Language.Haskell.GhcImportedFrom
 import System.FilePath()
 import Test.Hspec
 
