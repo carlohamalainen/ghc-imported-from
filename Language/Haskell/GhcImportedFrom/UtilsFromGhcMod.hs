@@ -37,6 +37,7 @@ import Distribution.PackageDescription
 import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
 import Distribution.Simple.Program (ghcProgram)
 import Distribution.Simple.Program.Types (programName, programFindVersion)
+import Distribution.Text (display)
 import Distribution.Verbosity (silent)
 
 import Control.Exception (throwIO)
