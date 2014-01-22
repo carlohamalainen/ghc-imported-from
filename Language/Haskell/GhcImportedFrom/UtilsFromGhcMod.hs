@@ -37,7 +37,7 @@ import Distribution.PackageDescription
 import Distribution.Simple.Compiler (CompilerId(..), CompilerFlavor(..))
 import Distribution.Simple.Program (ghcProgram)
 import Distribution.Simple.Program.Types (programName, programFindVersion)
-import Distribution.Text (display)
+import Distribution.Text as DistText
 import Distribution.Verbosity (silent)
 
 import Control.Exception (throwIO)
@@ -60,9 +60,9 @@ getGHCOptions ghcopts cradle cdir binfo = do
     return $ ghcopts ++ pkgDb ++ exts ++ [lang] ++ libs ++ libDirs ++ cpps
   where
     pkgDb = cradlePackageDbOpts cradle
-    lang = maybe "-XHaskell98" (("-X" ++) . display) $ defaultLanguage binfo
+    lang = maybe "-XHaskell98" (("-X" ++) . DistText.display) $ defaultLanguage binfo
     libDirs = map ("-L" ++) $ extraLibDirs binfo
-    exts = map (("-X" ++) . display) $ usedExtensions binfo
+    exts = map (("-X" ++) . DistText.display) $ usedExtensions binfo
     libs = map ("-l" ++) $ extraLibs binfo
 
 -- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
