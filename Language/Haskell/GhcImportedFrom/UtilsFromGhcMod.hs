@@ -1,4 +1,5 @@
-{-# LANGUAGE Rank2Types, OverloadedStrings #-}
+{-# LANGUAGE Rank2Types, OverloadedStrings, CPP #-}
+
 
 -----------------------------------------------------------------------------
 -- |
@@ -19,6 +20,8 @@
 --      * <https://github.com/kazu-yamamoto/ghc-mod>
 --
 -- Hopefully this is ok since ghc-mod and this project are both licensed BSD3.
+-- If this package ever stabilises I may send a pull request to ghc-mod asking
+-- for some of these functions to be exported, perhaps in Language.Haskell.GhcMod.Internal.
 
 module Language.Haskell.GhcImportedFrom.UtilsFromGhcMod where
 
@@ -41,6 +44,10 @@ import Distribution.Text as DistText
 import Distribution.Verbosity (silent)
 
 import Control.Exception (throwIO)
+
+import Data.Set (fromList, toList)
+
+import DynFlags
 
 -- ghcmod/Language/Haskell/GhcMod/Info.hs
 listifySpans :: Typeable a => TypecheckedSource -> (Int, Int) -> [Located a]
@@ -86,3 +93,64 @@ getGHC = do
     case mv of
         Nothing -> throwIO $ userError "ghc not found"
         Just v  -> return v
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+getCompilerOptions :: [GHCOption] -> Cradle -> PackageDescription -> IO CompilerOptions
+getCompilerOptions ghcopts cradle pkgDesc = do
+    gopts <- getGHCOptions ghcopts cradle cdir $ head buildInfos
+    return $ CompilerOptions gopts idirs depPkgs
+  where
+    wdir       = cradleCurrentDir cradle
+    Just cdir  = cradleCabalDir   cradle
+    Just cfile = cradleCabalFile  cradle
+    buildInfos = cabalAllBuildInfo pkgDesc
+    idirs      = includeDirectories cdir wdir $ cabalSourceDirs buildInfos
+    depPkgs    = removeThem problematicPackages $ removeMe cfile $ cabalDependPackages buildInfos
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+removeMe :: FilePath -> [Package] -> [Package]
+removeMe cabalfile = filter (/= me)
+  where
+    me = dropExtension $ takeFileName cabalfile
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+removeThem :: [Package] -> [Package] -> [Package]
+removeThem badpkgs = filter (`notElem` badpkgs)
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+problematicPackages :: [Package]
+problematicPackages = [
+    "base-compat" -- providing "Prelude"
+  ]
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+cabalBuildDirs :: [FilePath]
+cabalBuildDirs = ["dist/build", "dist/build/autogen"]
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+includeDirectories :: FilePath -> FilePath -> [FilePath] -> [FilePath]
+includeDirectories cdir wdir dirs = uniqueAndSort (extdirs ++ [cdir,wdir])
+  where
+    extdirs = map expand $ dirs ++ cabalBuildDirs
+    expand "."    = cdir
+    expand subdir = cdir </> subdir
+
+-- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
+uniqueAndSort :: [String] -> [String]
+uniqueAndSort = toList . fromList
+
+-- ghc-mod/Language/Haskell/GhcMod/Gap.hs
+addDevPkgs :: DynFlags -> [Package] -> DynFlags
+addDevPkgs df []   = df
+addDevPkgs df pkgs = df''
+  where
+#if __GLASGOW_HASKELL__ >= 707
+    df' = gopt_set df Opt_HideAllPackages
+#else
+    df' = dopt_set df Opt_HideAllPackages
+#endif
+    df'' = df' {
+        packageFlags = map ExposePackage pkgs ++ packageFlags df
+      }
+
+

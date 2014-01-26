@@ -20,6 +20,7 @@ extra-source-files:  test/*.hs
 library
     exposed-modules: Language.Haskell.GhcImportedFrom
     other-modules:   Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
+                     Language.Haskell.GhcImportedFrom.Types
 
     other-extensions:    CPP, Rank2Types
     build-depends: base >=4.6 && <4.7
@@ -45,7 +46,7 @@ library
 executable ghc-imported-from
   main-is:             Main.hs
   GHC-Options:         -Wall
-  -- other-modules:
+  other-modules:        Paths_ghc_imported_from
   other-extensions:    CPP, Rank2Types
   build-depends: base >=4.6 && <4.7
                , syb >=0.4 && <0.5

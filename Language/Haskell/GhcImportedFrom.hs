@@ -28,6 +28,7 @@ module Language.Haskell.GhcImportedFrom (
    , ghcOptionToGhcPKg
    , getGhcOptionsViaGhcMod
    , getGHCOptionsViaCradle
+   , getCompilerOptionsViaGhcMod
    , modifyDFlags
    , setDynamicFlags
    , getTextualImports
@@ -48,6 +49,12 @@ module Language.Haskell.GhcImportedFrom (
    , findHaddockModule
    , matchToUrl
    , guessHaddockUrl
+   , haddockUrl
+
+   -- Things from Language.Haskell.GhcImportedFrom.Types
+   , Options (..)
+   , defaultOptions
+   , LineSeparator (..)
    ) where
 
 import Control.Applicative
@@ -83,10 +90,22 @@ import qualified Packages
 import qualified SrcLoc
 import qualified Safe
 
-import Language.Haskell.GhcMod
-import Language.Haskell.GhcMod.Internal
+import Language.Haskell.GhcMod (
+      findCradle
+    , cradleCabalFile
+    , cradleCabalDir
+    , cradlePackageDbOpts
+    )
+
+import Language.Haskell.GhcMod.Internal (
+    cabalAllBuildInfo
+    , GHCOption
+    , parseCabalFile
+    , CompilerOptions (..)
+    )
 
 import Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
+import Language.Haskell.GhcImportedFrom.Types
 
 type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
 
@@ -131,6 +150,14 @@ getGHCOptionsViaCradle = do
     let binfo = head $ cabalAllBuildInfo pkgDesc
     getGHCOptions [] c (fromJust $ cradleCabalDir c) binfo
 
+-- | Get compiler options using ghc-mod's API.
+getCompilerOptionsViaGhcMod :: [GHCOption] -> IO CompilerOptions
+getCompilerOptionsViaGhcMod ghcOpts0 = do
+    cradle <- findCradle
+    pkgDesc <- parseCabalFile $ fromJust $ cradleCabalFile cradle
+    copts <- getCompilerOptions ghcOpts0 cradle pkgDesc
+    return copts
+
 -- | Add user-supplied GHC options to those discovered via ghc-mod.
 modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
@@ -139,19 +166,31 @@ modifyDFlags ghcOpts0 dflags0 =
             (GhcOptions ghcOpts1) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
             ghcOpts2 <- GhcMonad.liftIO getGHCOptionsViaCradle
 
+            (CompilerOptions compGhcOpts iPaths coDepPkgs) <- GhcMonad.liftIO $ getCompilerOptionsViaGhcMod ghcOpts0
+
+            -- FIXME Need to log this info.
+            -- GhcMonad.liftIO $ putStrLn $ "compGhcOpts: " ++ show compGhcOpts
+            -- GhcMonad.liftIO $ putStrLn $ "iPaths: " ++ show iPaths
+            -- GhcMonad.liftIO $ putStrLn $ "coDepPkgs: " ++ show coDepPkgs
+
             -- FIXME need to add ghcOpts1 and ghcOpts2 to the WriterT, but here
             -- we are inside the GhcMonad, so need to do some transformer stuff.
             -- Instead we laboriously return ghcOpts1 and ghcOpts2 up the call chain.
             -- GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
             -- GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
 
-            (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0)
+            -- FIXME Can probably remove the ghcOpts1 and ghcOpts2 stuff which
+            -- is superceded by the functionality of getCompilerOptionsViaGhcMod.
+            (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0 ++ compGhcOpts)
 
             let dflags2 = dflags1 { hscTarget = HscInterpreted
                                   , ghcLink = LinkInMemory
+                                  , importPaths = iPaths
                                   }
 
-            return (ghcOpts1, ghcOpts2, dflags2)
+                dflags3 = addDevPkgs dflags2 coDepPkgs
+
+            return (ghcOpts1, ghcOpts2, dflags3)
 
 -- | Set GHC options and run 'initPackages' in 'GhcMonad'.
 --
@@ -634,6 +673,9 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0
     myTell $ "line nr: " ++ show lineNr
     myTell $ "col nr: " ++ show colNr
 
+    myTell $ "ghcOpts0: " ++ show ghcOpts0
+    myTell $ "ghcPkgOpts: " ++ show ghcPkgOpts
+
     textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
     let haskellModuleNames = map (modName . toHaskellModule) textualImports
@@ -676,3 +718,18 @@ guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0
 
     return (if null final3 then Left "No matches found."
                            else Right $ head final3)
+
+
+-- | Top level function; use this one from src/Main.hs.
+haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
+haddockUrl opt file modstr symbol lineNr colNr = do
+
+    let ghcopts    = GhcOptions    $ ghcOpts    opt
+    let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
+
+    (res, logMessages) <- runWriterT $ guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts
+
+    return $ case res of Right x  -> unlines logMessages ++ "SUCCESS: " ++ x ++ "\n"
+                         Left err -> "FAIL: " ++ show err ++ "\n"
+
+
