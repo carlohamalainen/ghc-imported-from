@@ -33,7 +33,8 @@ or
 
 in a project directory to sort out some of the ```dist/build/autogen```
 files. At the moment ```ghc-imported-from``` has no functionality to
-do this boot process automatically.
+do this boot process automatically. To run ```cabal repl``` you might need
+the latest Cabal from [https://github.com/haskell/cabal](https://github.com/haskell/cabal).
 
 Feedback and pull requests most welcome!
 
