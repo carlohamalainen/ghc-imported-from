@@ -37,19 +37,9 @@ ghcPkgOptHelp = " [--ghc-pkg-option ghc_pkg_opt1 --ghc-pkg-option ghc_pkg_opt2 .
 usage :: String
 usage =    "ghc-imported-from version " ++ showVersion version ++ "\n"
         ++ "Usage:\n"
-        -- ++ "\t ghc-mod list" ++ ghcOptHelp ++ "[-l] [-d]\n"
-        -- ++ "\t ghc-mod lang [-l]\n"
-        -- ++ "\t ghc-mod flag [-l]\n"
-        -- ++ "\t ghc-mod browse" ++ ghcOptHelp ++ "[-l] [-o] [-d] [-q] [-p package] <module> [<module> ...]\n"
-        -- ++ "\t ghc-mod check" ++ ghcOptHelp ++ "<HaskellFiles...>\n"
-        -- ++ "\t ghc-mod expand" ++ ghcOptHelp ++ "<HaskellFiles...>\n"
-        -- ++ "\t ghc-mod debug" ++ ghcOptHelp ++ "<HaskellFile>\n"
-        -- ++ "\t ghc-mod info" ++ ghcOptHelp ++ "<HaskellFile> <module> <expression>\n"
-        -- ++ "\t ghc-mod type" ++ ghcOptHelp ++ "<HaskellFile> <module> <line-no> <column-no>\n"
-        -- ++ "\t ghc-mod lint [-h opt] <HaskellFile>\n"
-        -- ++ "\t ghc-mod boot\n"
-        -- ++ "\t ghc-mod help\n"
-        ++ "\t ghc-imported-from haddock-url" ++ ghcOptHelp ++ ghcPkgOptHelp ++ "<HaskellFile> <module> <line-no> <column-no>\n"
+        ++ "\t ghc-imported-from haddock-url" ++ ghcOptHelp ++ ghcPkgOptHelp ++ "<HaskellFile> <module> <symbol> <line-no> <column-no>\n"
+        ++ "\t ghc-imported-from help\n"
+        ++ "\nExample: ghc-imported-from haddock-url src/Main.hs Main getArgs 160 13\n"
 
 parseArgs :: [OptDescr (Options -> Options)] -> [String] -> (Options, [String])
 parseArgs spec argv
@@ -64,9 +54,9 @@ argspec = [ Option "g" ["ghc-options"]
           , Option "p" ["ghc-pkg-options"]
             (ReqArg (\g opts -> opts { ghcPkgOpts = g : ghcPkgOpts opts }) "ghc-pkg-options")
             "ghc-pkg options"
-          , Option "b" ["boundary"]
-            (ReqArg (\s opts -> opts { lineSeparator = LineSeparator s }) "sep")
-            "specify line separator (default is Nul string)"
+          -- , Option "b" ["boundary"]
+          --   (ReqArg (\s opts -> opts { lineSeparator = LineSeparator s }) "sep")
+          --   "specify line separator (default is Nul string)"
           ]
 
 main :: IO ()
@@ -77,8 +67,8 @@ main = flip catches handlers $ do
     args <- getArgs
     let (opt,cmdArg) = parseArgs argspec args
 
-    print opt
-    print cmdArg
+    -- print opt
+    -- print cmdArg
 
     let cmdArg0 = cmdArg !. 0
         cmdArg1 = cmdArg !. 1

@@ -1,17 +1,16 @@
-ghc-imported-from
-=================
+# ghc-imported-from
 
 For a given Haskell source file, determine the path to the Haddock documentation for a symbol at a particular line/col location.
 
-Example: on the file [Muddle.hs](https://github.com/carlohamalainen/ghc-imported-from/blob/master/tests/Muddle.hs),
+Example: on the file [src/Main.hs](https://github.com/carlohamalainen/ghc-imported-from/blob/master/src/Main.hs),
 
-    ../.cabal-sandbox/bin/ghc-imported-from Muddle.hs Muddle Maybe 11 11
+    ghc-imported-from haddock-url src/Main.hs Main getArgs 160 13
 
 says
 
-    SUCCESS: /home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
+    SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/System-Environment.html
 
-since the usage of ```Maybe``` at line 11, column 11, is from the ```Data.Maybe``` module.
+since the usage of ```getArgs``` at line 160, column 13, is from the ```System.Environment``` module.
 
 Difficulties arise because some symbols are exported from a certain
 package but defined in another, for example ```String``` is defined in
@@ -21,6 +20,22 @@ imports, selective imports, imports with hidden components, etc.
 
 Preference is given to any locally available Haddock documentation,
 and then to the generic url at hackage.org.
+
+## Beware
+
+You may have to run
+
+    cabal build
+
+or
+
+    cabal repl
+
+in a project directory to sort out some of the ```dist/build/autogen```
+files. At the moment ```ghc-imported-from``` has no functionality to
+do this boot process automatically.
+
+Feedback and pull requests most welcome!
 
 ## Install
 
@@ -53,9 +68,3 @@ See the ```tests``` subdirectory for some examples. Or load your favourite Haske
 Or watch the screencast (be sure to set 720p HD and then fullscreen):
 
 [http://www.youtube.com/watch?v=VVc8uupYJGs](http://www.youtube.com/watch?v=VVc8uupYJGs)
-
-## Beware
-
-If you use Cabal sandboxes, you'll have to hardcode the path to the package config file. This is a known issue: [https://github.com/carlohamalainen/ghc-imported-from/issues/3](https://github.com/carlohamalainen/ghc-imported-from/issues/3)
-
-Feedback and pull requests most welcome!
