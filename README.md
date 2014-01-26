@@ -36,6 +36,15 @@ files. At the moment ```ghc-imported-from``` has no functionality to
 do this boot process automatically. To run ```cabal repl``` you might need
 the latest Cabal from [https://github.com/haskell/cabal](https://github.com/haskell/cabal).
 
+If you see
+
+    <command line>: cannot satisfy -package hspec
+        (use -v for more information)
+
+then you may need the hspec and/or doctest packages:
+
+    cabal install hspec doctest
+
 Feedback and pull requests most welcome!
 
 ## Install
