@@ -155,8 +155,7 @@ getCompilerOptionsViaGhcMod :: [GHCOption] -> IO CompilerOptions
 getCompilerOptionsViaGhcMod ghcOpts0 = do
     cradle <- findCradle
     pkgDesc <- parseCabalFile $ fromJust $ cradleCabalFile cradle
-    copts <- getCompilerOptions ghcOpts0 cradle pkgDesc
-    return copts
+    getCompilerOptions ghcOpts0 cradle pkgDesc
 
 -- | Add user-supplied GHC options to those discovered via ghc-mod.
 modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
