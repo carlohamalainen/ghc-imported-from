@@ -1,5 +1,5 @@
 name:                ghc-imported-from
-version:             0.1.0.2
+version:             0.1.0.3
 synopsis:            Find the Haddock documentation for a symbol.
 description:         Given a Haskell module and symbol, determine the URL to the Haddock documentation
                      for that symbol.
@@ -28,7 +28,7 @@ library
                  , ghc >=7.6 && <7.7
                  , ghc-paths >=0.1 && <0.2
                  , ghc-syb-utils
-                 , ghc-mod >= 3.1.5
+                 , ghc-mod >= 3.1.5 && <= 3.1.5
                  , filepath
                  , safe
                  , process

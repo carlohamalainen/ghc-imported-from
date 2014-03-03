@@ -1,3 +1,6 @@
+2014-03-03 v0.1.0.3
+	* Fix build failure by pinning all package dependencies.
+
 2014-01-26 v0.1.0.2
 	* Use more of ghc-mod's API to set the correct GHC command
 	line arguments.
