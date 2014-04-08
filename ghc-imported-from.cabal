@@ -62,6 +62,8 @@ executable ghc-imported-from
                , containers >= 0.5.0.0 && <= 0.5.0.0
                , mtl
                , transformers
+               , hspec
+
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
   else
