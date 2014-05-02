@@ -25,6 +25,8 @@
 
 module Language.Haskell.GhcImportedFrom.UtilsFromGhcMod where
 
+import Language.Haskell.GhcImportedFrom.UtilsFromCabalInstall
+
 import Control.Applicative
 import Data.Generics hiding (typeOf)
 import GHC
@@ -64,6 +66,7 @@ getGHCOptions  :: [GHCOption] -> Cradle -> String -> BuildInfo -> IO [GHCOption]
 getGHCOptions ghcopts cradle cdir binfo = do
     cabalCpp <- cabalCppOptions cdir
     let cpps = map ("-optP" ++) $ cppOptions binfo ++ cabalCpp
+
     return $ ghcopts ++ pkgDb ++ exts ++ [lang] ++ libs ++ libDirs ++ cpps
   where
     pkgDb = cradlePackageDbOpts cradle
@@ -74,13 +77,22 @@ getGHCOptions ghcopts cradle cdir binfo = do
 
 -- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
 -- modification: return $ if ... instead of if .. return
+-- Extra modification: add dist-sandbox-[hash] directory.
 cabalCppOptions :: FilePath -> IO [String]
 cabalCppOptions dir = do
-    exist <- doesFileExist cabalMacro
-    return $ if exist then ["-include", cabalMacro]
-                      else []
+    let sandboxSubDir = sandboxBuildDir $ dir </> ".cabal-sandbox"
+        sandboxFullPath = dir </> sandboxSubDir
+
+    opts1 <- makeOpt $ dir </> "dist/build/autogen/cabal_macros.h"
+    opts2 <- makeOpt $ sandboxFullPath </> "build/autogen/cabal_macros.h"
+
+    return $ opts1 ++ opts2
   where
-    cabalMacro = dir </> "dist/build/autogen/cabal_macros.h"
+    makeOpt :: FilePath -> IO [String]
+    makeOpt cabalMacroDotH = do
+        exist <- doesFileExist cabalMacroDotH
+        return $ if exist then ["-include", cabalMacroDotH]
+                          else []
 
 -- ghc-mod/Language/Haskell/GhcMod/CabalApi.hs
 getGHCId :: IO CompilerId
@@ -131,7 +143,12 @@ cabalBuildDirs = ["dist/build", "dist/build/autogen"]
 includeDirectories :: FilePath -> FilePath -> [FilePath] -> [FilePath]
 includeDirectories cdir wdir dirs = uniqueAndSort (extdirs ++ [cdir,wdir])
   where
-    extdirs = map expand $ dirs ++ cabalBuildDirs
+    sandboxSubDir = sandboxBuildDir $ wdir </> ".cabal-sandbox"
+    sandboxFullPath = wdir </> sandboxSubDir
+
+    extdirs = map expand $ dirs ++ cabalBuildDirs ++ [sandboxFullPath </> "build", sandboxFullPath </> "build/autogen"]:: [FilePath]
+
+    expand :: FilePath -> FilePath
     expand "."    = cdir
     expand subdir = cdir </> subdir
 

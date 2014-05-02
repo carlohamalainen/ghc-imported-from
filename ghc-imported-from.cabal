@@ -20,6 +20,7 @@ extra-source-files:  test/*.hs
 library
     exposed-modules: Language.Haskell.GhcImportedFrom
     other-modules:   Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
+                     Language.Haskell.GhcImportedFrom.UtilsFromCabalInstall
                      Language.Haskell.GhcImportedFrom.Types
 
     other-extensions:    CPP, Rank2Types
