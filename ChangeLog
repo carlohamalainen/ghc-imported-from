@@ -1,3 +1,7 @@
+2014-05-02 v0.1.0.4
+	* Fix for hashed directory in sandbox dist/build; see also
+	  https://github.com/carlohamalainen/ghc-imported-from/issues/10
+
 2014-03-03 v0.1.0.3
 	* Fix build failure by pinning all package dependencies.
 
