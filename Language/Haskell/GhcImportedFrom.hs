@@ -180,6 +180,8 @@ modifyDFlags ghcOpts0 dflags0 =
 
             -- FIXME Can probably remove the ghcOpts1 and ghcOpts2 stuff which
             -- is superceded by the functionality of getCompilerOptionsViaGhcMod.
+            GhcMonad.liftIO $ putStrLn $ "modifyDFlags: " ++ (show $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0 ++ compGhcOpts)
+
             (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0 ++ compGhcOpts)
 
             let dflags2 = dflags1 { hscTarget = HscInterpreted
