@@ -4,7 +4,7 @@ For a given Haskell source file, determine the path to the Haddock documentation
 
 Example: on the file [src/Main.hs](https://github.com/carlohamalainen/ghc-imported-from/blob/master/src/Main.hs),
 
-    ghc-imported-from haddock-url src/Main.hs Main getArgs 160 13
+    ghc-imported-from haddock-url src/Main.hs Main getArgs 69 13
 
 says
 
