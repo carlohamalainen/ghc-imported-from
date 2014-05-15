@@ -1,5 +1,5 @@
 name:                ghc-imported-from
-version:             0.1.0.4
+version:             0.2.0.0
 synopsis:            Find the Haddock documentation for a symbol.
 description:         Given a Haskell module and symbol, determine the URL to the Haddock documentation
                      for that symbol.
@@ -106,4 +106,3 @@ Test-Suite spec
       Build-Depends:  Cabal >= 1.10 && < 1.17
   else
       Build-Depends:  Cabal >= 1.18
-
