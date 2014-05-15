@@ -20,15 +20,11 @@
 -- Latest development version: <https://github.com/carlohamalainen/ghc-imported-from>.
 
 module Language.Haskell.GhcImportedFrom (
-     QualifiedName(..)
-   , Symbol(..)
+     QualifiedName
+   , Symbol
    , GhcOptions(..)
    , GhcPkgOptions(..)
    , HaskellModule(..)
-   , ghcOptionToGhcPKg
-   , getGhcOptionsViaGhcMod
-   , getGHCOptionsViaCradle
-   , getCompilerOptionsViaGhcMod
    , modifyDFlags
    , setDynamicFlags
    , getTextualImports
@@ -50,6 +46,7 @@ module Language.Haskell.GhcImportedFrom (
    , matchToUrl
    , guessHaddockUrl
    , haddockUrl
+   , getGhcOptionsViaCabalRepl
 
    -- Things from Language.Haskell.GhcImportedFrom.Types
    , Options (..)
@@ -92,20 +89,51 @@ import qualified Safe
 
 import Language.Haskell.GhcMod (
       findCradle
-    , cradleCabalFile
-    , cradleCabalDir
-    , cradlePackageDbOpts
-    )
-
-import Language.Haskell.GhcMod.Internal (
-    cabalAllBuildInfo
-    , GHCOption
-    , parseCabalFile
-    , CompilerOptions (..)
+    , cradleRootDir
+    , Cradle(..)
     )
 
 import Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
 import Language.Haskell.GhcImportedFrom.Types
+
+
+#if __GLASGOW_HASKELL__ >= 708
+import DynFlags ( unsafeGlobalDynFlags )
+tdflags = unsafeGlobalDynFlags
+#else
+import DynFlags ( tracingDynFlags )
+tdflags = tracingDynFlags
+#endif
+
+type GHCOption = String
+
+getGhcOptionsViaCabalRepl :: IO (Maybe [String])
+getGhcOptionsViaCabalRepl = do
+    (Just _, Just hout, Just _, _) <- createProcess (proc "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe }
+
+    ineof <- hIsEOF hout
+
+    result <- if ineof
+                    then return ""
+                    else do firstLine <- hGetLine hout
+                            if "GHCi" `isPrefixOf` firstLine
+                                 then return "DERP" -- stuffed up, should report error
+                                 else do rest <- readRestOfHandle hout
+                                         return $ firstLine ++ "\n" ++ rest
+
+    let result' = filter ("--interactive" `isPrefixOf`) . lines $ result
+
+    case length result' of 1 -> return $ Just $ filterOpts $ words $ head result'
+                           _ -> return Nothing
+
+    where filterOpts :: [String] -> [String]
+          filterOpts xs = filter (\x -> x /= "--interactive" && x /= "-fbuilding-cabal-package") $ dropModuleNames xs
+
+          dropModuleNames :: [String] -> [String]
+          dropModuleNames xs = reverse $ dropWhile (not . ("-" `isPrefixOf`)) (reverse xs)
+
+getGhcOptionsViaCabalReplOrEmpty :: IO [String]
+getGhcOptionsViaCabalReplOrEmpty =  liftM (fromMaybe []) getGhcOptionsViaCabalRepl
 
 type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
 
@@ -130,68 +158,20 @@ data HaskellModule
                     , modSpecifically   :: [String]
                     } deriving (Show, Eq)
 
--- | Convert a GHC command line option to a @ghc-pkg@ command line option. This function
--- is incomplete; it only handles a few cases at the moment.
-ghcOptionToGhcPKg :: [String] -> [String]
-ghcOptionToGhcPKg [] = []
-ghcOptionToGhcPKg (x:xs) = case x of "-no-user-package-db" -> "--no-user-package-db":ghcOptionToGhcPKg xs
-                                     "-package-db"         -> ["--package-db", head xs] ++ ghcOptionToGhcPKg (tail xs)
-                                     _                     -> error $ "Unknown GHC option: " ++ show (x:xs) -- FIXME Other cases?
-
--- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle', 'cradlePackageDbOpts', and 'GhcOptions'.
-getGhcOptionsViaGhcMod :: IO GhcOptions
-getGhcOptionsViaGhcMod = GhcOptions . cradlePackageDbOpts <$> findCradle
-
--- | Use ghcmod's API to get the GHC options for a project. This uses 'findCradle' and 'getGHCOptions.'
-getGHCOptionsViaCradle :: IO [GHCOption]
-getGHCOptionsViaCradle = do
-    c <- findCradle
-    pkgDesc <- GhcMonad.liftIO $ parseCabalFile $ fromJust $ cradleCabalFile c
-    let binfo = head $ cabalAllBuildInfo pkgDesc
-    getGHCOptions [] c (fromJust $ cradleCabalDir c) binfo
-
--- | Get compiler options using ghc-mod's API.
-getCompilerOptionsViaGhcMod :: [GHCOption] -> IO CompilerOptions
-getCompilerOptionsViaGhcMod ghcOpts0 = do
-    cradle <- findCradle
-    pkgDesc <- parseCabalFile $ fromJust $ cradleCabalFile cradle
-    getCompilerOptions ghcOpts0 cradle pkgDesc
-
--- | Add user-supplied GHC options to those discovered via ghc-mod.
+-- | Add user-supplied GHC options to those discovered via cabl repl.
 modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
     defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
-            (GhcOptions ghcOpts1) <- GhcMonad.liftIO getGhcOptionsViaGhcMod
-            ghcOpts2 <- GhcMonad.liftIO getGHCOptionsViaCradle
+            ghcOpts1 <- GhcMonad.liftIO getGhcOptionsViaCabalReplOrEmpty
 
-            (CompilerOptions compGhcOpts iPaths coDepPkgs) <- GhcMonad.liftIO $ getCompilerOptionsViaGhcMod ghcOpts0
-
-            -- FIXME Need to log this info.
-            -- GhcMonad.liftIO $ putStrLn $ "compGhcOpts: " ++ show compGhcOpts
-            -- GhcMonad.liftIO $ putStrLn $ "iPaths: " ++ show iPaths
-            -- GhcMonad.liftIO $ putStrLn $ "coDepPkgs: " ++ show coDepPkgs
-
-            -- FIXME need to add ghcOpts1 and ghcOpts2 to the WriterT, but here
-            -- we are inside the GhcMonad, so need to do some transformer stuff.
-            -- Instead we laboriously return ghcOpts1 and ghcOpts2 up the call chain.
-            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts1: " ++ show ghcOpts1
-            -- GhcMonad.liftIO $ putStrLn $ "ghcOpts2: " ++ show ghcOpts2
-
-            -- FIXME Can probably remove the ghcOpts1 and ghcOpts2 stuff which
-            -- is superceded by the functionality of getCompilerOptionsViaGhcMod.
-            GhcMonad.liftIO $ putStrLn $ "modifyDFlags: " ++ (show $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0 ++ compGhcOpts)
-
-            (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts1 ++ ghcOpts2 ++ ghcOpts0 ++ compGhcOpts)
+            (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts0 ++ ghcOpts1)
 
             let dflags2 = dflags1 { hscTarget = HscInterpreted
                                   , ghcLink = LinkInMemory
-                                  , importPaths = iPaths
                                   }
 
-                dflags3 = addDevPkgs dflags2 coDepPkgs
-
-            return (ghcOpts1, ghcOpts2, dflags3)
+            return ([], [], dflags2)
 
 -- | Set GHC options and run 'initPackages' in 'GhcMonad'.
 --
@@ -206,6 +186,7 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
     (ghcOpts1, ghcOpts2, dflags1) <- GhcMonad.liftIO $ modifyDFlags extraGHCOpts dflags0
     void $ setSessionDynFlags dflags1
     _ <- GhcMonad.liftIO $ Packages.initPackages dflags1
+
     return (ghcOpts1, ghcOpts2, dflags1)
 
 -- |Read the textual imports in a file.
@@ -296,11 +277,11 @@ getSummary ghcopts targetFile targetModuleName =
 toHaskellModule :: SrcLoc.Located (GHC.ImportDecl GHC.RdrName) -> HaskellModule
 toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedAs specifically
     where idecl'     = SrcLoc.unLoc idecl
-          name       = showSDoc tracingDynFlags (ppr $ GHC.ideclName idecl')
+          name       = showSDoc tdflags (ppr $ GHC.ideclName idecl')
           isImplicit = GHC.ideclImplicit idecl'
           qualifier  = unpackFS <$> GHC.ideclPkgQual idecl'
           hiding     = map removeBrackets $ (catMaybes . parseHiding . GHC.ideclHiding) idecl'
-          importedAs = (showSDoc tracingDynFlags . ppr) <$> ideclAs idecl'
+          importedAs = (showSDoc tdflags . ppr) <$> ideclAs idecl'
           specifically = map removeBrackets $ (parseSpecifically . GHC.ideclHiding) idecl'
 
           removeBrackets :: [a] -> [a]
@@ -308,7 +289,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           removeBrackets x = (init . tail) x
 
           grabNames :: GHC.Located (GHC.IE GHC.RdrName) -> String
-          grabNames loc = showSDoc tracingDynFlags (ppr names)
+          grabNames loc = showSDoc tdflags (ppr names)
             where names = GHC.ieNames $ SrcLoc.unLoc loc
 
           parseHiding :: Maybe (Bool, [Located (IE RdrName)]) -> [Maybe String]
@@ -336,7 +317,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
 -- Example:
 --
 -- >>> x <- lookupSymbol "tests/data/data/Hiding.hs" "Hiding" "head" ["Prelude", "Safe", "System.Environment", "Data.List"]
--- *GhcImportedFrom> putStrLn . (showSDoc tracingDynFlags) . ppr $ x
+-- *GhcImportedFrom> putStrLn . (showSDoc tdflags) . ppr $ x
 -- [(GHC.List.head,
 --   [GHC.List.head
 --      imported from `Data.List' at tests/data/data/Hiding.hs:5:1-29
@@ -450,7 +431,7 @@ qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList =
             es = listifySpans tcs (lineNr, colNr) :: [LHsExpr Id]
             ps = listifySpans tcs (lineNr, colNr) :: [LPat Id]
 
-        let foo x = showSDoc tracingDynFlags $ ppr x
+        let foo x = showSDoc tdflags $ ppr x
             bs' = map foo bs
             es' = map foo es
             ps' = map foo ps
@@ -466,14 +447,21 @@ readRestOfHandle h = do
         then return ""
         else hGetContents h
 
+optsForGhcPkg :: [String] -> [String]
+optsForGhcPkg [] = []
+optsForGhcPkg ("-no-user-package-db":rest)   = "--no-user-package-db"          : optsForGhcPkg rest
+optsForGhcPkg ("-package-db":pd:rest)        = ("--package-db" ++ "=" ++ pd)   : optsForGhcPkg rest
+optsForGhcPkg ("-package-conf":pc:rest)      = ("--package-conf" ++ "=" ++ pc) : optsForGhcPkg rest
+optsForGhcPkg ("-no-user-package-conf":rest) = "--no-user-package-conf"        : optsForGhcPkg rest
+optsForGhcPkg (_:rest) = optsForGhcPkg rest
+
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
 ghcPkgFindModule :: GhcPkgOptions -> String -> WriterT [String] IO (Maybe String)
 ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
+    gopts <- CMT.liftIO getGhcOptionsViaCabalReplOrEmpty
 
-    (GhcOptions gopts) <- CMT.liftIO getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
-
-    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg gopts ++ extraGHCPkgOpts
     myTell $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- CMT.liftIO $ createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -483,17 +471,18 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
 
     output <- CMT.liftIO $ readRestOfHandle hout
     err    <- CMT.liftIO $ readRestOfHandle herr
-    myTell $ "ghcPkgFindModule stdout: " ++ output
-    myTell $ "ghcPkgFindModule stderr: " ++ err
+
+    myTell $ "ghcPkgFindModule stdout: " ++ show output
+    myTell $ "ghcPkgFindModule stderr: " ++ show err
 
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 ghcPkgHaddockUrl :: GhcPkgOptions -> String -> WriterT [String] IO (Maybe String)
 ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
-    (GhcOptions gopts) <- CMT.liftIO getGhcOptionsViaGhcMod :: WriterT [String] IO GhcOptions
+    gopts <- CMT.liftIO getGhcOptionsViaCabalReplOrEmpty
 
-    let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ ghcOptionToGhcPKg gopts ++ extraGHCPkgOpts
+    let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ optsForGhcPkg gopts ++ extraGHCPkgOpts
     myTell $ "ghc-pkg "++ show opts
 
     (_, Just hout, _, _) <- CMT.liftIO $ createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
@@ -585,23 +574,23 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
           -- Adapted from http://www.haskell.org/pipermail/haskell-cafe/2010-June/078702.html
           substringP :: String -> String -> Maybe Int
           substringP _ []  = Nothing
-          substringP sub str = if sub `isPrefixOf` str then Just 0 else fmap (+1) $ substringP sub (tail str)
+          substringP sub str = if sub `isPrefixOf` str then Just 0 else (+1) <$> substringP sub (tail str)
 
 -- | When we use 'parseName' to convert a 'String' to a 'Name' we get a list of matches instead of
 -- a unique match, so we end up having to guess the best match based on the qualified name.
 bestPrefixMatches :: Name -> [GlobalRdrElt] -> [String]
 bestPrefixMatches name lookUp = x''
-    where name' = showSDoc tracingDynFlags $ ppr name
+    where name' = showSDoc tdflags $ ppr name
           name'' = fromJust $ moduleOfQualifiedName name' -- FIXME dangerous fromJust
           x   = concatMap symbolImportedFrom lookUp
-          x'  = map (showSDoc tracingDynFlags . ppr) x
+          x'  = map (showSDoc tdflags . ppr) x
           x'' = filter (name'' `isPrefixOf`) x'
 
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
 findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> WriterT [String] IO (Maybe String, Maybe String, Maybe String, Maybe String)
 findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
-    myTell $ "name: " ++ showSDoc tracingDynFlags (ppr name)
+    myTell $ "name: " ++ showSDoc tdflags (ppr name)
 
     let definedIn = nameModule name
         bpms = bestPrefixMatches name lookUp
@@ -610,13 +599,13 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
                             -- FIXME should really return *all* of these matches, not just the first one. We
                             -- can't be certain that we're choosing the best one. Ditto for all other
                             -- uses of head or Safe.headMay.
-                            then if null bpms then Safe.headMay $ map (showSDoc tracingDynFlags . ppr) $ concatMap symbolImportedFrom lookUp
+                            then if null bpms then Safe.headMay $ map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
                                               else Safe.headMay bpms :: Maybe String
-                            else (Just . (showSDoc tracingDynFlags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+                            else (Just . (showSDoc tdflags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
 
-    myTell $ "definedIn: " ++ showSDoc tracingDynFlags (ppr definedIn)
+    myTell $ "definedIn: " ++ showSDoc tdflags (ppr definedIn)
     myTell $ "bpms: " ++ show bpms
-    myTell $ "concat $ map symbolImportedFrom lookUp: " ++ showSDoc tracingDynFlags (ppr $ concatMap symbolImportedFrom lookUp)
+    myTell $ "concat $ map symbolImportedFrom lookUp: " ++ showSDoc tdflags (ppr $ concatMap symbolImportedFrom lookUp)
 
 
     myTell $ "importedFrom: " ++ show importedFrom
@@ -654,7 +643,7 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
     if e then return $ "file://" ++ f
          else do myTell $ "f:  " ++ show f
                  myTell $ "foundModule: " ++ show foundModule'
-                 return $ toHackageUrl f foundModule' (showSDoc tracingDynFlags (ppr importedFrom'))
+                 return $ toHackageUrl f foundModule' (showSDoc tdflags (ppr importedFrom'))
 
 
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
@@ -667,7 +656,14 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> WriterT [String] IO (Either String String)
-guessHaddockUrl targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcPkgOpts = do
+guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcPkgOpts = do
+    c <- CMT.liftIO findCradle
+    let currentDir = cradleCurrentDir c
+        workDir = cradleRootDir c
+    CMT.liftIO $ setCurrentDirectory workDir
+
+    let targetFile = currentDir </> _targetFile
+
     myTell $ "targetFile: " ++ targetFile
     myTell $ "targetModule: " ++ targetModule
     myTell $ "symbol: " ++ show symbol
