@@ -1,3 +1,7 @@
+2014-05-15 v0.2.0.1
+
+* Link to changelog.md.
+
 2014-05-15 v0.2.0.0
 
 * Builds with GHC 7.6.3 and 7.8.2.
