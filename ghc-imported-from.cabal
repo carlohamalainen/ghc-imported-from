@@ -1,5 +1,5 @@
 name:                ghc-imported-from
-version:             0.2.0.0
+version:             0.2.0.1
 synopsis:            Find the Haddock documentation for a symbol.
 description:         Given a Haskell module and symbol, determine the URL to the Haddock documentation
                      for that symbol.
@@ -11,7 +11,8 @@ maintainer:          carlo@carlo-hamalainen.net
 -- copyright:
 category:            Development
 build-type:          Simple
-extra-source-files:  README.md
+extra-source-files:  README.md changelog.md
+
 cabal-version:       >=1.10
 
 extra-source-files:  test/*.hs
