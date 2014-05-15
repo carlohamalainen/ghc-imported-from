@@ -20,21 +20,20 @@ extra-source-files:  test/*.hs
 library
     exposed-modules: Language.Haskell.GhcImportedFrom
     other-modules:   Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
-                     Language.Haskell.GhcImportedFrom.UtilsFromCabalInstall
                      Language.Haskell.GhcImportedFrom.Types
 
     other-extensions:    CPP, Rank2Types
-    build-depends: base >=4.6 && <4.7
-                 , syb >=0.4 && <0.5
-                 , ghc >=7.6 && <7.7
-                 , ghc-paths >=0.1 && <0.2
+    build-depends: base
+                 , syb
+                 , ghc
+                 , ghc-paths
                  , ghc-syb-utils
-                 , ghc-mod >= 3.1.5 && <= 3.1.5
+                 , ghc-mod
                  , filepath
                  , safe
                  , process
                  , directory
-                 , containers >= 0.5.0.0 && <= 0.5.0.0
+                 , containers
                  , mtl
                  , transformers
     if impl(ghc < 7.7)
@@ -44,23 +43,31 @@ library
 
     default-language:    Haskell2010
 
+executable fake-ghc-for-ghc-imported-from
+  main-is:          fake-ghc-for-ghc-imported-from.hs
+  GHC-Options:      -Wall
+  hs-source-dirs:   src
+  build-depends: base
+               , process
+  default-language:  Haskell2010
+
 executable ghc-imported-from
   main-is:             Main.hs
   GHC-Options:         -Wall
   other-modules:        Paths_ghc_imported_from
   other-extensions:    CPP, Rank2Types
-  build-depends: base >=4.6 && <4.7
-               , syb >=0.4 && <0.5
-               , ghc >=7.6 && <7.7
-               , ghc-paths >=0.1 && <0.2
+  build-depends: base
+               , syb
+               , ghc
+               , ghc-paths
                , ghc-syb-utils
-               , ghc-mod >= 3.1.5
+               , ghc-mod
                , ghc-imported-from
                , filepath
                , safe
                , process
                , directory
-               , containers >= 0.5.0.0 && <= 0.5.0.0
+               , containers
                , mtl
                , transformers
                , hspec
@@ -81,17 +88,17 @@ Test-Suite spec
   Type:                 exitcode-stdio-1.0
   Other-Modules:        Dir
                         ImportedFromSpec
-  Build-Depends:        base >=4.6 && <4.7
-                      , syb >=0.4 && <0.5
-                      , ghc >=7.6 && <7.7
-                      , ghc-paths >=0.1 && <0.2
+  Build-Depends:        base
+                      , syb
+                      , ghc
+                      , ghc-paths
                       , ghc-syb-utils
-                      , ghc-mod >= 3.1.5
+                      , ghc-mod
                       , filepath
                       , safe
                       , process
                       , directory
-                      , containers >= 0.5.0.0 && <= 0.5.0.0
+                      , containers
                       , mtl
                       , transformers
                       , hspec
