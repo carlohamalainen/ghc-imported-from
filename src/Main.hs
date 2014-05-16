@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module Main where
+--module Main where
 
 import Language.Haskell.GhcImportedFrom
 
