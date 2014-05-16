@@ -343,6 +343,8 @@ lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList =
         setTargets [target]
         _ <- load LoadAllTargets
 
+        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: " ++ show (ghcopts, targetFile, targetModuleName, qualifiedSymbol, importList)
+
         -- Bring in the target module and its imports.
         (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(_  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn "lookupSymbol: setContext failed with a SourceError, trying to continue anyway..."
@@ -407,7 +409,7 @@ postfixMatch originalSymbol qName = endTerm `isSuffixOf` qName
 --
 -- >>> moduleOfQualifiedName "Foo.bar"
 -- Just "Foo"
--- >>> moduleOfQualifiedName "bar"
+-- >>> moduleOfQualifiedName "Foo"
 -- Nothing
 moduleOfQualifiedName :: QualifiedName -> Maybe String
 moduleOfQualifiedName qn = if null bits
@@ -607,20 +609,24 @@ bestPrefixMatches name lookUp = x''
 
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
-findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO (Maybe String, Maybe String, Maybe String, Maybe String)
+findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
 findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
+    let lastBitOfSymbol = last $ separateBy '.' symbol''
+    putStrLn $ "findHaddockModule, symbol'': " ++ symbol''
+    putStrLn $ "findHaddockModule, lastBitOfSymbol: " ++ lastBitOfSymbol
     putStrLn $ "name: " ++ showSDoc tdflags (ppr name)
 
     let definedIn = nameModule name
         bpms = bestPrefixMatches name lookUp
+        importedFrom :: [String]
         importedFrom = if null smatches
                             -- then Safe.headMay $ concatMap symbolImportedFrom lookUp :: Maybe ModuleName
                             -- FIXME should really return *all* of these matches, not just the first one. We
                             -- can't be certain that we're choosing the best one. Ditto for all other
                             -- uses of head or Safe.headMay.
-                            then if null bpms then Safe.headMay $ map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
-                                              else Safe.headMay bpms :: Maybe String
-                            else (Just . (showSDoc tdflags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+                            then if null bpms then map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
+                                              else catMaybes $ return $ Safe.headMay bpms
+                            else return $ ((showSDoc tdflags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
 
     putStrLn $ "definedIn: " ++ showSDoc tdflags (ppr definedIn)
     putStrLn $ "bpms: " ++ show bpms
@@ -629,20 +635,22 @@ findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
 
     putStrLn $ "importedFrom: " ++ show importedFrom
 
-    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcpkgOpts) importedFrom
-    putStrLn $ "ghcPkgFindModule result: " ++ show foundModule
+    forM importedFrom $ \impfrom -> do
+        let impfrom' = Just impfrom
+        foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcpkgOpts) impfrom'
+        putStrLn $ "ghcPkgFindModule result: " ++ show foundModule
 
-    let base = moduleNameToHtmlFile <$> importedFrom
+        let base = moduleNameToHtmlFile <$> impfrom'
 
-    putStrLn $ "base: : " ++ show base
+        putStrLn $ "base: : " ++ show base
 
-    -- haddock <- fmap (filter ('"' /=)) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
-    haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcpkgOpts) foundModule
+        -- haddock <- fmap (filter ('"' /=)) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
+        haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcpkgOpts) foundModule
 
-    putStrLn $ "haddock: " ++ show haddock
-    putStrLn $ "foundModule: " ++ show foundModule
+        putStrLn $ "haddock: " ++ show haddock
+        putStrLn $ "foundModule: " ++ show foundModule
 
-    return (importedFrom, haddock, foundModule, base)
+        return (impfrom', haddock, foundModule, base)
 
 -- | Convert our match to a URL, either @file://@ if the file exists, or to @hackage.org@ otherwise.
 matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> IO String
@@ -661,6 +669,13 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
                  putStrLn $ "foundModule: " ++ show foundModule'
                  return $ toHackageUrl f foundModule' (showSDoc tdflags (ppr importedFrom'))
 
+
+-- | The 'concatMapM' function generalizes 'concatMap' to arbitrary monads.
+concatMapM        :: (Monad m) => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs   =  liftM concat (mapM f xs)
+
+isHidden :: String -> String -> HaskellModule -> Bool
+isHidden symbol mname (HaskellModule name qualifier isImplicit hiding importedAs specifically) = mname == name && isNothing importedAs && symbol `elem` hiding
 
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
@@ -691,8 +706,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
     textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
-    let haskellModuleNames = map (modName . toHaskellModule) textualImports
+    let haskellModules = map toHaskellModule textualImports
+        haskellModuleNames = map modName haskellModules
     putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
+    putStrLn $ "haskellModuleNames (full detail): " ++ show haskellModules
 
     qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
 
@@ -725,9 +742,27 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
     final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
-    final2 <- filter allJust <$> mapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
+
+    aaaaaaaa <- concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
+    putStrLn $ "aaaaaaaa: " ++ show aaaaaaaa
+
+    -- Remove any modules that have this name hidden.
+    -- e.g. import Data.List hiding (map)
+    --
+    -- FIXME Do we have to deal
+    -- with qualified exclusions, e.g. import qualified Data.List as DL hiding (DL.map) ? Or will it be import qualified Data.List as DL hiding (map)?
+    let aaaaaaaa' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
+                                                    Nothing -> False) aaaaaaaa
+    putStrLn $ "aaaaaaaa': " ++ show aaaaaaaa'
+    putStrLn $ show (symbol, haskellModules)
+
+    -- Temp, FIXME remove the head
+    -- final2 <- filter allJust <$> mapM (\z -> head <$> findHaddockModule symbol'' smatches ghcpkgOptions z) final1
+    let final2 = filter allJust aaaaaaaa'
 
     final3 <- mapM matchToUrl final2
+
+    -- FIXME Gracefully handle the case where there are multiple matches.
 
     return (if null final3 then Left "No matches found."
                            else Right $ head final3)
