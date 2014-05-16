@@ -202,22 +202,20 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
 --
 -- See also 'toHaskellModule' and 'getSummary'.
 
-getTextualImports :: GhcOptions -> FilePath -> String -> IO [SrcLoc.Located (ImportDecl RdrName)]
+getTextualImports :: GhcMonad m => GhcOptions -> FilePath -> String -> m [SrcLoc.Located (ImportDecl RdrName)]
 getTextualImports ghcopts targetFile targetModuleName = do
-    putStrLn $ "getTextualImports: " ++ show (targetFile, targetModuleName)
+    GhcMonad.liftIO $ putStrLn $ "getTextualImports: " ++ show (targetFile, targetModuleName)
     (ghcOpts1, ghcOpts2, modSum) <- getSummary ghcopts targetFile targetModuleName
 
-    putStrLn $ "getTextualImports: ghcOpts1: " ++ show ghcOpts1
-    putStrLn $ "getTextualImports: ghcOpts2: " ++ show ghcOpts2
+    GhcMonad.liftIO $ putStrLn $ "getTextualImports: ghcOpts1: " ++ show ghcOpts1
+    GhcMonad.liftIO $ putStrLn $ "getTextualImports: ghcOpts2: " ++ show ghcOpts2
 
     return $ ms_textual_imps modSum
 
 -- | Get the module summary for a particular file/module. The first and second components of the
 -- return value are @ghcOpts1@ and @ghcOpts2@; see 'setDynamicFlags'.
-getSummary :: GhcOptions -> FilePath -> String -> IO ([String], [GHCOption], ModSummary)
-getSummary ghcopts targetFile targetModuleName =
-    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
-        runGhc (Just libdir) $ do
+getSummary :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([String], [GHCOption], ModSummary)
+getSummary ghcopts targetFile targetModuleName = do
             GhcMonad.liftIO $ putStrLn $ "getSummary, setting dynamic flags..."
             (ghcOpts1, ghcOpts2, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
@@ -333,16 +331,8 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
 --      imported from `Data.List' at tests/data/data/Hiding.hs:5:1-29
 --      (and originally defined in `base:GHC.List')])]
 
-lookupSymbol :: GhcOptions -> FilePath -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
-lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList =
-    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
-      runGhc (Just libdir) $ do
-        _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
-
-        target <- guessTarget targetFile Nothing
-        setTargets [target]
-        _ <- load LoadAllTargets
-
+lookupSymbol :: GhcOptions -> String -> String -> String -> [String] -> Ghc [(Name, [GlobalRdrElt])]
+lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList = do
         GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: " ++ show (ghcopts, targetFile, targetModuleName, qualifiedSymbol, importList)
 
         -- Bring in the target module and its imports.
@@ -428,16 +418,8 @@ moduleOfQualifiedName qn = if null bits
 -- "Data.Map.Base.fromList [(\"x\", \"y\")]"
 -- "Data.Map.Base.fromList"
 
-qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> IO [String]
-qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList =
-    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
-      runGhc (Just libdir) $ do
-        _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
-
-        target <- guessTarget targetFile Nothing
-        setTargets [target]
-        _ <- load LoadAllTargets
-
+qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
+qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
         (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(_  :: SourceError)    -> GhcMonad.liftIO $ putStrLn "qualifiedName: setContext failed with a SourceError, trying to continue anyway...")
            `gcatch` (\(_  :: GhcApiError)    -> GhcMonad.liftIO $ putStrLn "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway...")
@@ -620,10 +602,6 @@ findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
         bpms = bestPrefixMatches name lookUp
         importedFrom :: [String]
         importedFrom = if null smatches
-                            -- then Safe.headMay $ concatMap symbolImportedFrom lookUp :: Maybe ModuleName
-                            -- FIXME should really return *all* of these matches, not just the first one. We
-                            -- can't be certain that we're choosing the best one. Ditto for all other
-                            -- uses of head or Safe.headMay.
                             then if null bpms then map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
                                               else catMaybes $ return $ Safe.headMay bpms
                             else return $ ((showSDoc tdflags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
@@ -644,7 +622,6 @@ findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
 
         putStrLn $ "base: : " ++ show base
 
-        -- haddock <- fmap (filter ('"' /=)) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
         haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcpkgOpts) foundModule
 
         putStrLn $ "haddock: " ++ show haddock
@@ -704,62 +681,64 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     putStrLn $ "ghcOpts0: " ++ show ghcOpts0
     putStrLn $ "ghcpkgOptions: " ++ show ghcpkgOptions
 
-    textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
+    -- Put a runGhc up here, then change the types further down???
+    runGhc (Just libdir) $ do
+        textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
-    let haskellModules = map toHaskellModule textualImports
-        haskellModuleNames = map modName haskellModules
-    putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
-    putStrLn $ "haskellModuleNames (full detail): " ++ show haskellModules
+        let haskellModules = map toHaskellModule textualImports
+            haskellModuleNames = map modName haskellModules
+        GhcMonad.liftIO $ putStrLn $ "haskellModuleNames: " ++ show haskellModuleNames
+        GhcMonad.liftIO $ putStrLn $ "haskellModuleNames (full detail): " ++ show haskellModules
 
-    qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
+        -- and this does a runGhc:
+        qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
 
-    putStrLn $ "qualified names: " ++ show qnames
+        GhcMonad.liftIO $ putStrLn $ "qualified names: " ++ show qnames
 
-    let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
-    putStrLn $ "matchingAsImport: " ++ show matchingAsImport
+        let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
+        GhcMonad.liftIO $ putStrLn $ "matchingAsImport: " ++ show matchingAsImport
 
-    let postMatches = filter (postfixMatch symbol) qnames :: [String]
-        symbol' = fromMaybe (if null postMatches then symbol else minimumBy (compare `on` length) postMatches) matchingAsImport
+        let postMatches = filter (postfixMatch symbol) qnames :: [String]
+            symbol' = fromMaybe (if null postMatches then symbol else minimumBy (compare `on` length) postMatches) matchingAsImport
 
-    putStrLn $ "postMatches:  " ++ show postMatches
-    putStrLn $ "symbol': " ++ symbol'
+        GhcMonad.liftIO $ putStrLn $ "postMatches:  " ++ show postMatches
+        GhcMonad.liftIO $ putStrLn $ "symbol': " ++ symbol'
 
-    let maybeExtraModule = moduleOfQualifiedName symbol'
-        haskellModuleNames' = if symbol == symbol' then haskellModuleNames else haskellModuleNames ++ [fromJust maybeExtraModule]
+        let maybeExtraModule = moduleOfQualifiedName symbol'
+            haskellModuleNames' = if symbol == symbol' then haskellModuleNames else haskellModuleNames ++ [fromJust maybeExtraModule]
 
-    putStrLn $ "maybeExtraModule: " ++ show maybeExtraModule
-    putStrLn $ "haskellModuleNames': " ++ show haskellModuleNames'
+        GhcMonad.liftIO $ putStrLn $ "maybeExtraModule: " ++ show maybeExtraModule
+        GhcMonad.liftIO $ putStrLn $ "haskellModuleNames': " ++ show haskellModuleNames'
 
-    let smatches = specificallyMatches symbol (map toHaskellModule textualImports)
-    putStrLn $ "smatches: " ++ show smatches
+        let smatches = specificallyMatches symbol (map toHaskellModule textualImports)
+        GhcMonad.liftIO $ putStrLn $ "smatches: " ++ show smatches
 
-    let symbol'' = if null smatches
-                        then symbol'
-                        else modName (head smatches) ++ "." ++ symbol
+        let symbol'' = if null smatches
+                            then symbol'
+                            else modName (head smatches) ++ "." ++ symbol
 
-    putStrLn $ "symbol'': " ++ symbol''
+        GhcMonad.liftIO $ putStrLn $ "symbol'': " ++ symbol''
 
-    let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
+        let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-    final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
+        -- Then this does a runGhc as well.
+        final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
 
-    final1' <- concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
-    putStrLn $ "final1': " ++ show final1'
+        final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
+        GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
 
-    -- Remove any modules that have this name hidden.
-    -- e.g. import Data.List hiding (map)
-    let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
-                                                   Nothing -> False) final1'
-    putStrLn $ "final1'': " ++ show final1''
-    putStrLn $ show (symbol, haskellModules)
+        -- Remove any modules that have this name hidden.
+        -- e.g. import Data.List hiding (map)
+        let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
+                                                       Nothing -> False) final1'
+        GhcMonad.liftIO $ putStrLn $ "final1'': " ++ show final1''
+        GhcMonad.liftIO $ putStrLn $ show (symbol, haskellModules)
 
-    let final2 = filter allJust final1''
+        let final2 = filter allJust final1''
+        final3 <- GhcMonad.liftIO $ mapM matchToUrl final2
 
-    final3 <- mapM matchToUrl final2
-
-    return (if null final3 then Left "No matches found."
-                           else Right $ final3)
-
+        return (if null final3 then Left "No matches found."
+                               else Right $ final3)
 
 -- | Top level function; use this one from src/Main.hs.
 haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
