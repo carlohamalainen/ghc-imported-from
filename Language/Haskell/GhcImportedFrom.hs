@@ -229,9 +229,9 @@ getSummary ghcopts targetFile targetModuleName = do
             GhcMonad.liftIO $ putStrLn $ "getSummary, setting the context..."
 
             (setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName])
-                   `gcatch` (\(_  :: SourceError)  -> GhcMonad.liftIO (putStrLn "getSummary: setContext failed with a SourceError, trying to continue anyway..."))
-                   `gcatch` (\(_ :: GhcApiError)   -> GhcMonad.liftIO (putStrLn "getSummary: setContext failed with a GhcApiError, trying to continue anyway..."))
-                   `gcatch` (\(_ :: SomeException) -> GhcMonad.liftIO (putStrLn "getSummary: setContext failed with a SomeException, trying to continue anyway..."))
+                   `gcatch` (\(e  :: SourceError)   -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a SourceError, trying to continue anyway..." ++ show e))
+                   `gcatch` (\(g  :: GhcApiError)   -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g))
+                   `gcatch` (\(se :: SomeException) -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a SomeException, trying to continue anyway..." ++ show se))
 
             -- Extract the module summary.
             GhcMonad.liftIO $ putStrLn $ "getSummary, extracting the module summary..."
@@ -337,11 +337,11 @@ lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList = do
 
         -- Bring in the target module and its imports.
         (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
-           `gcatch` (\(_  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn "lookupSymbol: setContext failed with a SourceError, trying to continue anyway..."
+           `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
-           `gcatch` (\(_  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn "lookupSymbol: setContext failed with a GhcApiError, trying to continue anyway..."
+           `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
-           `gcatch` (\(_  :: SomeException)  -> do GhcMonad.liftIO $ putStrLn "lookupSymbol: setContext failed with a SomeException, trying to continue anyway..."
+           `gcatch` (\(se :: SomeException)  -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a SomeException, trying to continue anyway..." ++ show se
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
 
         -- Get the module summary, then parse it, type check it, and desugar it.
@@ -421,9 +421,9 @@ moduleOfQualifiedName qn = if null bits
 qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
 qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
         (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
-           `gcatch` (\(_  :: SourceError)    -> GhcMonad.liftIO $ putStrLn "qualifiedName: setContext failed with a SourceError, trying to continue anyway...")
-           `gcatch` (\(_  :: GhcApiError)    -> GhcMonad.liftIO $ putStrLn "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway...")
-           `gcatch` (\(_  :: SomeException)  -> GhcMonad.liftIO $ putStrLn "qualifiedName: setContext failed with a SomeException, trying to continue anyway...")
+           `gcatch` (\(s  :: SourceError)    -> GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s)
+           `gcatch` (\(g  :: GhcApiError)    -> GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g)
+           `gcatch` (\(se :: SomeException)  -> GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SomeException, trying to continue anyway..." ++ show se)
 
         modSummary <- getModSummary $ mkModuleName targetModuleName :: Ghc ModSummary
         p <- parseModule modSummary   :: Ghc ParsedModule
@@ -748,9 +748,9 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
 
     res <- (guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts)
-               `gcatch` (\(_ :: SourceError)   -> return $ Left "guessHaddockUrl failed with a SourceError")
-               `gcatch` (\(_ :: GhcApiError)   -> return $ Left "guessHaddockUrl failed with a GhcApiError")
-               `gcatch` (\(_ :: SomeException) -> return $ Left "guessHaddockUrl failed with a SomeException")
+               `gcatch` (\(s  :: SourceError)   -> return $ Left $ "guessHaddockUrl failed with a SourceError... " ++ show s)
+               `gcatch` (\(g  :: GhcApiError)   -> return $ Left $ "guessHaddockUrl failed with a GhcApiError... " ++ show g)
+               `gcatch` (\(se :: SomeException) -> return $ Left $ "guessHaddockUrl failed with a SomeException... " ++ show se)
 
     case res of Right x  -> return $ (if length x > 1 then "WARNING: Multiple matches! Showing them all.\n" else "")
                                         ++ (concat $ map (\z -> "SUCCESS: " ++ z ++ "\n") (reverse x)) -- Why reverse? To show the first one last, which the vim plugin will get.

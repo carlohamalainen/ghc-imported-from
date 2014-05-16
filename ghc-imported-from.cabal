@@ -19,6 +19,7 @@ extra-source-files:  test/*.hs
                      test/data/*.hs
 
 library
+    GHC-Options:         -Wall -O2
     exposed-modules: Language.Haskell.GhcImportedFrom
     other-modules:   Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
                      Language.Haskell.GhcImportedFrom.Types
@@ -46,7 +47,7 @@ library
 
 executable fake-ghc-for-ghc-imported-from
   main-is:          fake-ghc-for-ghc-imported-from.hs
-  GHC-Options:      -Wall
+  GHC-Options:      -Wall -O2
   hs-source-dirs:   src
   build-depends: base >=4.6 && <4.8
                , process
@@ -54,7 +55,7 @@ executable fake-ghc-for-ghc-imported-from
 
 executable ghc-imported-from
   main-is:             Main.hs
-  GHC-Options:         -Wall
+  GHC-Options:         -Wall -O2
   other-modules:        Paths_ghc_imported_from
   other-extensions:    CPP, Rank2Types
   build-depends: base >=4.6 && <4.8
@@ -83,7 +84,7 @@ executable ghc-imported-from
 
 Test-Suite spec
   Default-Language:     Haskell2010
-  GHC-Options:          -Wall
+  GHC-Options:          -Wall -O2
   Main-Is:              Spec.hs
   Hs-Source-Dirs:       test, .
   Type:                 exitcode-stdio-1.0
