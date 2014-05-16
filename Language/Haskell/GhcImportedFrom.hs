@@ -686,7 +686,7 @@ isHidden symbol mname (HaskellModule name qualifier isImplicit hiding importedAs
 -- (lots of output)
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 
-guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String String)
+guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String [String])
 guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcpkgOptions = do
     cradle <- findCradle
     let currentDir = cradleCurrentDir cradle
@@ -743,29 +743,22 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
     final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
 
-    aaaaaaaa <- concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
-    putStrLn $ "aaaaaaaa: " ++ show aaaaaaaa
+    final1' <- concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
+    putStrLn $ "final1': " ++ show final1'
 
     -- Remove any modules that have this name hidden.
     -- e.g. import Data.List hiding (map)
-    --
-    -- FIXME Do we have to deal
-    -- with qualified exclusions, e.g. import qualified Data.List as DL hiding (DL.map) ? Or will it be import qualified Data.List as DL hiding (map)?
-    let aaaaaaaa' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
-                                                    Nothing -> False) aaaaaaaa
-    putStrLn $ "aaaaaaaa': " ++ show aaaaaaaa'
+    let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
+                                                   Nothing -> False) final1'
+    putStrLn $ "final1'': " ++ show final1''
     putStrLn $ show (symbol, haskellModules)
 
-    -- Temp, FIXME remove the head
-    -- final2 <- filter allJust <$> mapM (\z -> head <$> findHaddockModule symbol'' smatches ghcpkgOptions z) final1
-    let final2 = filter allJust aaaaaaaa'
+    let final2 = filter allJust final1''
 
     final3 <- mapM matchToUrl final2
 
-    -- FIXME Gracefully handle the case where there are multiple matches.
-
     return (if null final3 then Left "No matches found."
-                           else Right $ head final3)
+                           else Right $ final3)
 
 
 -- | Top level function; use this one from src/Main.hs.
@@ -780,7 +773,8 @@ haddockUrl opt file modstr symbol lineNr colNr = do
                `gcatch` (\(_ :: GhcApiError)   -> return $ Left "guessHaddockUrl failed with a GhcApiError")
                `gcatch` (\(_ :: SomeException) -> return $ Left "guessHaddockUrl failed with a SomeException")
 
-    return $ case res of Right x  -> "SUCCESS: " ++ x ++ "\n"
-                         Left err -> "FAIL: " ++ show err ++ "\n"
-
-
+    case res of Right x  -> return $ (if length x > 1 then "WARNING: Multiple matches! Showing them all.\n" else "")
+                                        ++ (concat $ map (\z -> "SUCCESS: " ++ z ++ "\n") (reverse x)) -- Why reverse? To show the first one last, which the vim plugin will get.
+                                                                                                       -- This is flaky but will make it behave as earlier versions did, which used
+                                                                                                       -- Safe.headMay to get the first result.
+                Left err -> return $ "FAIL: " ++ show err ++ "\n"
