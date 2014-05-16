@@ -161,7 +161,7 @@ data HaskellModule
 -- | Add user-supplied GHC options to those discovered via cabl repl.
 modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
-    defaultErrorHandler defaultFatalMessager defaultFlushOut $
+    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
             ghcOpts1 <- GhcMonad.liftIO getGhcOptionsViaCabalReplOrEmpty
 
@@ -216,7 +216,7 @@ getTextualImports ghcopts targetFile targetModuleName = do
 -- return value are @ghcOpts1@ and @ghcOpts2@; see 'setDynamicFlags'.
 getSummary :: GhcOptions -> FilePath -> String -> IO ([String], [GHCOption], ModSummary)
 getSummary ghcopts targetFile targetModuleName =
-    defaultErrorHandler defaultFatalMessager defaultFlushOut $
+    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
             GhcMonad.liftIO $ putStrLn $ "getSummary, setting dynamic flags..."
             (ghcOpts1, ghcOpts2, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
@@ -335,7 +335,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
 
 lookupSymbol :: GhcOptions -> FilePath -> String -> String -> [String] -> IO [(Name, [GlobalRdrElt])]
 lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList =
-    defaultErrorHandler defaultFatalMessager defaultFlushOut $
+    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
         _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
@@ -428,7 +428,7 @@ moduleOfQualifiedName qn = if null bits
 
 qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> IO [String]
 qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList =
-    defaultErrorHandler defaultFatalMessager defaultFlushOut $
+    -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
       runGhc (Just libdir) $ do
         _ <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
@@ -743,7 +743,10 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     let ghcopts    = GhcOptions    $ ghcOpts    opt
     let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
 
-    res <- guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts
+    res <- (guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts)
+               `gcatch` (\(s  :: SourceError)   -> return $ Left "guessHaddockUrl failed with a SourceError")
+               `gcatch` (\(a  :: GhcApiError)   -> return $ Left "guessHaddockUrl failed with a GhcApiError")
+               `gcatch` (\(se :: SomeException) -> return $ Left "guessHaddockUrl failed with a SomeException")
 
     return $ case res of Right x  -> "SUCCESS: " ++ x ++ "\n"
                          Left err -> "FAIL: " ++ show err ++ "\n"
