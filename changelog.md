@@ -1,3 +1,10 @@
+2014-05-16 v0.2.0.2
+
+* Catch GHC panics.
+* Verbose debug output.
+* Handle case where source file may not have a validly define module name
+  but parses correctly regardless. https://github.com/carlohamalainen/ghc-imported-from/issues/15
+
 2014-05-15 v0.2.0.1
 
 * Link to changelog.md.
