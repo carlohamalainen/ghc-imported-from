@@ -608,7 +608,7 @@ bestPrefixMatches name lookUp = x''
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
 findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO (Maybe String, Maybe String, Maybe String, Maybe String)
-findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
+findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
     putStrLn $ "name: " ++ showSDoc tdflags (ppr name)
 
     let definedIn = nameModule name
@@ -629,7 +629,7 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
 
     putStrLn $ "importedFrom: " ++ show importedFrom
 
-    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcPkgOpts) importedFrom
+    foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcpkgOpts) importedFrom
     putStrLn $ "ghcPkgFindModule result: " ++ show foundModule
 
     let base = moduleNameToHtmlFile <$> importedFrom
@@ -637,15 +637,12 @@ findHaddockModule symbol'' smatches ghcPkgOpts (name, lookUp) = do
     putStrLn $ "base: : " ++ show base
 
     -- haddock <- fmap (filter ('"' /=)) <$> maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
-    haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcPkgOpts) foundModule
+    haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcpkgOpts) foundModule
 
     putStrLn $ "haddock: " ++ show haddock
     putStrLn $ "foundModule: " ++ show foundModule
 
     return (importedFrom, haddock, foundModule, base)
-
-myTell :: MonadWriter [t] m => t -> m ()
-myTell x = tell [x]
 
 -- | Convert our match to a URL, either @file://@ if the file exists, or to @hackage.org@ otherwise.
 matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> IO String
@@ -675,10 +672,10 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String String)
-guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcPkgOpts = do
-    c <- findCradle
-    let currentDir = cradleCurrentDir c
-        workDir = cradleRootDir c
+guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcpkgOptions = do
+    cradle <- findCradle
+    let currentDir = cradleCurrentDir cradle
+        workDir = cradleRootDir cradle
     setCurrentDirectory workDir
 
     let targetFile = currentDir </> _targetFile
@@ -690,7 +687,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     putStrLn $ "col nr: " ++ show colNr
 
     putStrLn $ "ghcOpts0: " ++ show ghcOpts0
-    putStrLn $ "ghcPkgOpts: " ++ show ghcPkgOpts
+    putStrLn $ "ghcpkgOptions: " ++ show ghcpkgOptions
 
     textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
@@ -728,7 +725,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
     final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
-    final2 <- filter allJust <$> mapM (findHaddockModule symbol'' smatches ghcPkgOpts) final1
+    final2 <- filter allJust <$> mapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
 
     final3 <- mapM matchToUrl final2
 
@@ -744,9 +741,9 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
 
     res <- (guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts)
-               `gcatch` (\(s  :: SourceError)   -> return $ Left "guessHaddockUrl failed with a SourceError")
-               `gcatch` (\(a  :: GhcApiError)   -> return $ Left "guessHaddockUrl failed with a GhcApiError")
-               `gcatch` (\(se :: SomeException) -> return $ Left "guessHaddockUrl failed with a SomeException")
+               `gcatch` (\(_ :: SourceError)   -> return $ Left "guessHaddockUrl failed with a SourceError")
+               `gcatch` (\(_ :: GhcApiError)   -> return $ Left "guessHaddockUrl failed with a GhcApiError")
+               `gcatch` (\(_ :: SomeException) -> return $ Left "guessHaddockUrl failed with a SomeException")
 
     return $ case res of Right x  -> "SUCCESS: " ++ x ++ "\n"
                          Left err -> "FAIL: " ++ show err ++ "\n"
