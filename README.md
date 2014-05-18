@@ -63,7 +63,19 @@ Or, install into a sandbox:
     cd ghc-imported-from
     ./build_in_sandbox.sh
 
-Either way, ensure that ```ghc-imported-from``` is in the current PATH.
+Either way, ensure that ```ghc-imported-from``` and ```fake-ghc-for-ghc-imported-from``` are in the current PATH.
+
+### Tests
+
+Run the tests using cabal:
+
+    cabal test --show-details=streaming
+
+As of 2014-05-18 just running ```cabal test``` seems to run the
+tests and then hang (waiting on a PID). This seems to be the problem:
+https://github.com/haskell/cabal/issues/1810
+
+Running with ```--show-details=streaming``` seems to work ok.
 
 ### ghcimportedfrom-vim
 
