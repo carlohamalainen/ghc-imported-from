@@ -712,6 +712,35 @@ finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames' = do
                                                     else return []
     return $ concat blah
 
+actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames' = do
+    -- This is getting ridiculous...
+    GhcMonad.liftIO $ putStrLn "last bits 1..."
+    zzz <- finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames'
+    GhcMonad.liftIO $ putStrLn "last bits 2..."
+    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule ghcpkgOptions r
+                               GhcMonad.liftIO $ print $ "forM_ last bits: " ++ show p
+                               case p of Nothing  -> return []
+                                         (Just _) -> return [(r, fromJust p)]
+
+    let yyy' = concat yyy
+
+    GhcMonad.liftIO $ putStrLn "last bits 3..."
+    -- FIXME why don't we have the full ghc options right now? More than just the user-supplied ones?
+    yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl (GhcPkgOptions ghcOpts0) pname
+                                               if isJust haddock
+                                                     then do GhcMonad.liftIO $ putStrLn $ "last bits 3 inner loop: " ++ show haddock
+                                                             url <- GhcMonad.liftIO $ matchToUrl (Just mname, haddock, Just mname, Just $ moduleNameToHtmlFile mname)
+                                                             return $ Just url
+                                                     else return Nothing
+
+    GhcMonad.liftIO $ putStrLn $ "yyy'': " ++ show yyy''
+
+    GhcMonad.liftIO $ putStrLn "last bits 4..."
+    let yyy''' = catMaybes yyy''
+    GhcMonad.liftIO $ print $ "yyy''': " ++ (show yyy''')
+
+    return yyy'''
+
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
 --
@@ -814,38 +843,13 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         let final2 = filter allJust final1''
         final3 <- GhcMonad.liftIO $ mapM matchToUrl final2
 
-        -- This is getting ridiculous...
-        GhcMonad.liftIO $ putStrLn "last bits 1..."
-        zzz <- finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames'
-        GhcMonad.liftIO $ putStrLn "last bits 2..."
-        yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule ghcpkgOptions r
-                                   GhcMonad.liftIO $ print $ "forM_ last bits: " ++ show p
-                                   case p of Nothing  -> return []
-                                             (Just _) -> return [(r, fromJust p)]
-
-        let yyy' = concat yyy
-
-        GhcMonad.liftIO $ putStrLn "last bits 3..."
-        -- FIXME why don't we have the full ghc options right now? More than just the user-supplied ones?
-        yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl (GhcPkgOptions ghcOpts0) pname
-                                                   if isJust haddock
-                                                         then do GhcMonad.liftIO $ putStrLn $ "last bits 3 inner loop: " ++ show haddock
-                                                                 url <- GhcMonad.liftIO $ matchToUrl (Just mname, haddock, Just mname, Just $ moduleNameToHtmlFile mname)
-                                                                 return $ Just url
-                                                         else return Nothing
-
-        GhcMonad.liftIO $ putStrLn $ "yyy'': " ++ show yyy''
-
-        GhcMonad.liftIO $ putStrLn "last bits 4..."
-        let yyy''' = catMaybes yyy''
-        GhcMonad.liftIO $ print $ "yyy''': " ++ (show yyy''')
-
         GhcMonad.liftIO $ putStrLn "last bits 5..."
         if null final3
-            then if null yyy'''
-                    then return $ Left $ "No matches found."
-                    else return $ Right yyy'''
-            else return $ Right final3
+            then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames'
+                    if null yyy'''
+                            then return $ Left $ "No matches found."
+                            else return $ Right yyy'''
+                    else return $ Right final3
 
 -- | Top level function; use this one from src/Main.hs.
 haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
