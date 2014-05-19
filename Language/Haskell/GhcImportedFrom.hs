@@ -97,6 +97,9 @@ import Language.Haskell.GhcImportedFrom.Types
 
 import Control.Exception (SomeException)
 
+import qualified Text.Parsec as TP
+import Data.Functor.Identity
+
 #if __GLASGOW_HASKELL__ >= 708
 import DynFlags ( unsafeGlobalDynFlags )
 tdflags = unsafeGlobalDynFlags
@@ -109,6 +112,8 @@ type GHCOption = String
 
 getGhcOptionsViaCabalRepl :: IO (Maybe [String])
 getGhcOptionsViaCabalRepl = do
+    putStrLn $ "getGhcOptionsViaCabalRepl..."
+
     (Just _, Just hout, Just _, _) <- createProcess (proc "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe }
 
     ineof <- hIsEOF hout
@@ -126,11 +131,36 @@ getGhcOptionsViaCabalRepl = do
     case length result' of 1 -> return $ Just $ filterOpts $ words $ head result'
                            _ -> return Nothing
 
-    where filterOpts :: [String] -> [String]
-          filterOpts xs = filter (\x -> x /= "--interactive" && x /= "-fbuilding-cabal-package") $ dropModuleNames xs
+filterOpts :: [String] -> [String]
+filterOpts xs = filter (\x -> x /= "--interactive" && x /= "-fbuilding-cabal-package" && x /= "-Wall") $ dropModuleNames xs
 
-          dropModuleNames :: [String] -> [String]
-          dropModuleNames xs = reverse $ dropWhile (not . ("-" `isPrefixOf`)) (reverse xs)
+dropModuleNames :: [String] -> [String]
+dropModuleNames = filter parseHelper
+
+zzz = ["--interactive","-fbuilding-cabal-package","-O0","-outputdir","dist/build","-odir","dist/build","-hidir","dist/build","-stubdir","dist/build","-i","-idist/build","-i.","-idist/build/autogen","-Idist/build/autogen","-Idist/build","-optP-include","-optPdist/build/autogen/cabal_macros.h","-package-name","ghc-imported-from-0.2.0.3","-hide-all-packages","-no-user-package-db","-package-db","/home/carlo/work/github/ghc-imported-from/.cabal-sandbox/x86_64-linux-ghc-7.6.3-packages.conf.d","-package-db","dist/package.conf.inplace","-package-id","Cabal-1.16.0-c6e09e008cd04cf255c1ce0c59aba905","-package-id","base-4.6.0.1-8aa5d403c45ea59dcd2c39f123e27d57","-package-id","containers-0.5.0.0-ab1dae9a94cd3cc84e7b2805636ebfa2","-package-id","directory-1.2.0.1-91a788fd88acd7f149f0f10f5f1e23f2","-package-id","filepath-1.3.0.1-b12cbe18566fe1532a1fda4c85e31cbe","-package-id","ghc-7.6.3-18957ddbb817289f604552aa2da2e879","-package-id","ghc-mod-4.1.0-a87501f2667239b3f0bef3e0f3753496","-package-id","ghc-paths-0.1.0.9-3817f31ae510ed3b58554933ea527b74","-package-id","ghc-syb-utils-0.2.1.2-bf72c1e71339c52f0af404a12449c9d2","-package-id","mtl-2.2.0.1-ef91e0abcf7a4fb581ecb7fe83cdcba1","-package-id","process-1.1.0.2-76e05340eb66705981411022731ca84a","-package-id","safe-0.3.4-ba52ca348aecad429ba90450e3aba4c4","-package-id","syb-0.4.1-9469ffdd9c6a7ebbf035421c915a08ee","-package-id","transformers-0.4.1.0-42810d723884ebf2a2dd638e5b22e523","-XHaskell2010","Language.Haskell.GhcImportedFrom","Language.Haskell.GhcImportedFrom.UtilsFromGhcMod","Language.Haskell.GhcImportedFrom.Types","-Wall"]
+
+parseHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+parseHaskellModuleName = do
+    c <- TP.upper
+    cs <- TP.many (TP.choice [TP.lower, TP.upper])
+    return (c:cs)
+
+parseDottedHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+parseDottedHaskellModuleName = do
+    TP.char '.'
+    cs <- parseHaskellModuleName
+    return cs
+
+parseFullHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+parseFullHaskellModuleName = do
+    h <- parseHaskellModuleName
+    rest <- many parseDottedHaskellModuleName
+
+    return $ intercalate "." (h:rest)
+
+parseHelper :: String -> Bool
+parseHelper s = case (TP.parse (parseFullHaskellModuleName <* TP.eof) "" s) of Right _ -> False
+                                                                               Left _  -> True
 
 getGhcOptionsViaCabalReplOrEmpty :: IO [String]
 getGhcOptionsViaCabalReplOrEmpty =  liftM (fromMaybe []) getGhcOptionsViaCabalRepl
@@ -159,7 +189,7 @@ data HaskellModule
                     } deriving (Show, Eq)
 
 -- | Add user-supplied GHC options to those discovered via cabl repl.
-modifyDFlags :: [String] -> DynFlags -> IO ([String], [GHCOption], DynFlags)
+modifyDFlags :: [String] -> DynFlags -> IO ([GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
     -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
@@ -171,7 +201,7 @@ modifyDFlags ghcOpts0 dflags0 =
                                   , ghcLink = LinkInMemory
                                   }
 
-            return ([], [], dflags2)
+            return (ghcOpts0 ++ ghcOpts1, dflags2)
 
 -- | Set GHC options and run 'initPackages' in 'GhcMonad'.
 --
@@ -181,14 +211,14 @@ modifyDFlags ghcOpts0 dflags0 =
 -- >    runGhc (Just libdir) $ do
 -- >        getSessionDynFlags >>= setDynamicFlags (GhcOptions myGhcOptionList)
 -- >        -- do stuff
-setDynamicFlags :: GhcMonad m => GhcOptions -> DynFlags -> m ([String], [GHCOption], DynFlags)
+setDynamicFlags :: GhcMonad m => GhcOptions -> DynFlags -> m ([GHCOption], DynFlags)
 setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
-    (ghcOpts1, ghcOpts2, dflags1) <- GhcMonad.liftIO $ modifyDFlags extraGHCOpts dflags0
+    (allGhcOpts, dflags1) <- GhcMonad.liftIO $ modifyDFlags extraGHCOpts dflags0
 
     void $ setSessionDynFlags dflags1
     _ <- GhcMonad.liftIO $ Packages.initPackages dflags1
 
-    return (ghcOpts1, ghcOpts2, dflags1)
+    return (allGhcOpts, dflags1)
 
 -- |Read the textual imports in a file.
 --
@@ -202,27 +232,27 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
 --
 -- See also 'toHaskellModule' and 'getSummary'.
 
-getTextualImports :: GhcMonad m => GhcOptions -> FilePath -> String -> m [SrcLoc.Located (ImportDecl RdrName)]
+getTextualImports :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([GHCOption], [SrcLoc.Located (ImportDecl RdrName)])
 getTextualImports ghcopts targetFile targetModuleName = do
     GhcMonad.liftIO $ putStrLn $ "getTextualImports: " ++ show (targetFile, targetModuleName)
-    (ghcOpts1, ghcOpts2, modSum) <- getSummary ghcopts targetFile targetModuleName
+    (allGhcOpts, modSum) <- getSummary ghcopts targetFile targetModuleName
 
-    GhcMonad.liftIO $ putStrLn $ "getTextualImports: ghcOpts1: " ++ show ghcOpts1
-    GhcMonad.liftIO $ putStrLn $ "getTextualImports: ghcOpts2: " ++ show ghcOpts2
+    GhcMonad.liftIO $ putStrLn $ "getTextualImports: allGhcOpts: " ++ show allGhcOpts
 
-    return $ ms_textual_imps modSum
+    return (allGhcOpts, ms_textual_imps modSum)
 
 -- | Get the module summary for a particular file/module. The first and second components of the
 -- return value are @ghcOpts1@ and @ghcOpts2@; see 'setDynamicFlags'.
-getSummary :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([String], [GHCOption], ModSummary)
+getSummary :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([GHCOption], ModSummary)
 getSummary ghcopts targetFile targetModuleName = do
             GhcMonad.liftIO $ putStrLn $ "getSummary, setting dynamic flags..."
-            (ghcOpts1, ghcOpts2, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
+            (allGhcOpts, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
             -- Load the target file (e.g. "Muddle.hs").
             GhcMonad.liftIO $ putStrLn $ "getSummary, loading the target file..."
             target <- guessTarget targetFile Nothing
             setTargets [target]
+
             _ <- load LoadAllTargets
 
             -- Set the context by loading the module, e.g. "Muddle" which is in "Muddle.hs".
@@ -242,7 +272,7 @@ getSummary ghcopts targetFile targetModuleName = do
             -- let graph_names = map (GHC.moduleNameString . GHC.ms_mod_name) graph
             -- GhcMonad.liftIO $ print $ "graph_names: " ++ show graph_names
 
-            return (ghcOpts1, ghcOpts2, modSum)
+            return (allGhcOpts, modSum)
 
 -- |Convenience function for converting an 'GHC.ImportDecl' to a 'HaskellModule'.
 --
@@ -484,11 +514,9 @@ optsForGhcPkg (_:rest) = optsForGhcPkg rest
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-ghcPkgFindModule :: GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
-    gopts <- getGhcOptionsViaCabalReplOrEmpty
-
-    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg gopts ++ extraGHCPkgOpts
+ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg " ++ show opts
 
     (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -505,11 +533,9 @@ ghcPkgFindModule (GhcPkgOptions extraGHCPkgOpts) m = do
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
-ghcPkgHaddockUrl :: GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgHaddockUrl (GhcPkgOptions extraGHCPkgOpts) p = do
-    gopts <- getGhcOptionsViaCabalReplOrEmpty
-
-    let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ optsForGhcPkg gopts ++ extraGHCPkgOpts
+ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+    let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
     (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
@@ -615,8 +641,8 @@ bestPrefixMatches name lookUp = x''
 
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
-findHaddockModule :: QualifiedName -> [HaskellModule] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
-findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
+findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
+findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts (name, lookUp) = do
  -- FIXME this is messy - the code below has a dodgy fromJust...
  if isJust (moduleOfQualifiedName symbol'')
   then do
@@ -642,14 +668,14 @@ findHaddockModule symbol'' smatches ghcpkgOpts (name, lookUp) = do
 
     forM importedFrom $ \impfrom -> do
         let impfrom' = Just impfrom
-        foundModule <- maybe (return Nothing) (ghcPkgFindModule ghcpkgOpts) impfrom'
+        foundModule <- maybe (return Nothing) (ghcPkgFindModule allGhcOpts ghcpkgOpts) impfrom'
         putStrLn $ "ghcPkgFindModule result: " ++ show foundModule
 
         let base = moduleNameToHtmlFile <$> impfrom'
 
         putStrLn $ "base: : " ++ show base
 
-        haddock <- maybe (return Nothing) (ghcPkgHaddockUrl ghcpkgOpts) foundModule
+        haddock <- maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOpts) foundModule
 
         putStrLn $ "haddock: " ++ show haddock
         putStrLn $ "foundModule1: " ++ show foundModule
@@ -712,12 +738,12 @@ finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames' = do
                                                     else return []
     return $ concat blah
 
-actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames' = do
+actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellModuleNames' = do
     -- This is getting ridiculous...
     GhcMonad.liftIO $ putStrLn "last bits 1..."
-    zzz <- finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames'
+    zzz <- finalCase allGhcOpts targetFile targetModule symbol haskellModuleNames'
     GhcMonad.liftIO $ putStrLn "last bits 2..."
-    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule ghcpkgOptions r
+    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule allGhcOpts ghcpkgOptions r
                                GhcMonad.liftIO $ print $ "forM_ last bits: " ++ show p
                                case p of Nothing  -> return []
                                          (Just _) -> return [(r, fromJust p)]
@@ -726,7 +752,7 @@ actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellMod
 
     GhcMonad.liftIO $ putStrLn "last bits 3..."
     -- FIXME why don't we have the full ghc options right now? More than just the user-supplied ones?
-    yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl (GhcPkgOptions ghcOpts0) pname
+    yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl allGhcOpts (GhcPkgOptions allGhcOpts) pname
                                                if isJust haddock
                                                      then do GhcMonad.liftIO $ putStrLn $ "last bits 3 inner loop: " ++ show haddock
                                                              url <- GhcMonad.liftIO $ matchToUrl (Just mname, haddock, Just mname, Just $ moduleNameToHtmlFile mname)
@@ -770,7 +796,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
     -- Put a runGhc up here, then change the types further down???
     runGhc (Just libdir) $ do
-        textualImports <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
+        (allGhcOpts, textualImports) <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
         let haskellModules0 = map toHaskellModule textualImports
             haskellModuleNames0 = map modName haskellModules0
@@ -815,7 +841,6 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn $ "maybeExtraModule': " ++ show maybeExtraModule'
         GhcMonad.liftIO $ putStrLn $ "haskellModuleNames': " ++ show haskellModuleNames'
 
-
         let smatches = specificallyMatches symbol (map toHaskellModule textualImports)
         GhcMonad.liftIO $ putStrLn $ "smatches: " ++ show smatches
 
@@ -830,7 +855,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         -- Then this does a runGhc as well.
         final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
 
-        final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches ghcpkgOptions) final1
+        final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions) final1
         GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
 
         -- Remove any modules that have this name hidden.

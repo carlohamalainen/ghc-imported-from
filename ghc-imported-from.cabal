@@ -19,7 +19,7 @@ extra-source-files:  test/*.hs
                      test/data/*.hs
 
 library
-    GHC-Options:         -Wall -O2
+    GHC-Options:         -Wall
     exposed-modules: Language.Haskell.GhcImportedFrom
     other-modules:   Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
                      Language.Haskell.GhcImportedFrom.Types
@@ -38,6 +38,7 @@ library
                  , containers
                  , mtl
                  , transformers
+                 , parsec
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else
@@ -47,7 +48,7 @@ library
 
 executable fake-ghc-for-ghc-imported-from
   main-is:          fake-ghc-for-ghc-imported-from.hs
-  GHC-Options:      -Wall -O2
+  GHC-Options:      -Wall
   hs-source-dirs:   src
   build-depends: base >=4.6 && <4.8
                , process
@@ -55,7 +56,7 @@ executable fake-ghc-for-ghc-imported-from
 
 executable ghc-imported-from
   main-is:             Main.hs
-  GHC-Options:         -Wall -O2
+  GHC-Options:         -Wall
   other-modules:        Paths_ghc_imported_from
   other-extensions:    CPP, Rank2Types
   build-depends: base >=4.6 && <4.8
@@ -72,6 +73,7 @@ executable ghc-imported-from
                , containers
                , mtl
                , transformers
+               , parsec
                , hspec
 
   if impl(ghc < 7.7)
@@ -84,7 +86,7 @@ executable ghc-imported-from
 
 Test-Suite spec
   Default-Language:     Haskell2010
-  GHC-Options:          -Wall -O2
+  GHC-Options:          -Wall
   Main-Is:              Spec.hs
   Hs-Source-Dirs:       test, .
   Type:                 exitcode-stdio-1.0
@@ -103,6 +105,7 @@ Test-Suite spec
                       , containers
                       , mtl
                       , transformers
+                      , parsec
                       , hspec
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
