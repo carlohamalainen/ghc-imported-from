@@ -1,3 +1,8 @@
+2014-05-16 v0.2.0.3
+
+* Fixed test cases.
+* Added alternative heuristic for lookup.
+
 2014-05-16 v0.2.0.2
 
 * Catch GHC panics.
