@@ -1,4 +1,4 @@
-2014-05-16 v0.2.0.3
+2014-05-19 v0.2.0.3
 
 * Fixed test cases.
 * Added alternative heuristic for lookup.
