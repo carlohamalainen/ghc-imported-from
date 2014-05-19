@@ -89,7 +89,7 @@ See the ```tests``` subdirectory for some examples. Or load your favourite Haske
 
 Or watch the screencast (be sure to set 720p HD and then fullscreen):
 
-[http://www.youtube.com/watch?v=VVc8uupYJGs](http://www.youtube.com/watch?v=VVc8uupYJGs)
+[https://www.youtube.com/watch?v=xSrgvUHmF5Q](https://www.youtube.com/watch?v=xSrgvUHmF5Q)
 
 ## Notes
 
