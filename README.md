@@ -69,13 +69,10 @@ Either way, ensure that ```ghc-imported-from``` and ```fake-ghc-for-ghc-imported
 
 Run the tests using cabal:
 
-    cabal test --show-details=streaming
+    cabal test
 
-As of 2014-05-18 just running ```cabal test``` seems to run the
-tests and then hang (waiting on a PID). This seems to be the problem:
-https://github.com/haskell/cabal/issues/1810
-
-Running with ```--show-details=streaming``` seems to work ok.
+If the tests hang, check that your version of Cabal/cabal-install has this
+fix: https://github.com/haskell/cabal/issues/1810
 
 ### ghcimportedfrom-vim
 
