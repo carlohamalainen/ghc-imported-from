@@ -134,6 +134,9 @@ getGhcOptionsViaCabalRepl = do
 filterOpts :: [String] -> [String]
 filterOpts xs = filter (\x -> x /= "--interactive" && x /= "-fbuilding-cabal-package" && x /= "-Wall") $ dropModuleNames xs
 
+dropModuleNames :: [String] -> [String]
+dropModuleNames = filter parseHelper
+
 parseHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
 parseHaskellModuleName = do
     c <- TP.upper
