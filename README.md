@@ -86,7 +86,7 @@ See the ```tests``` subdirectory for some examples. Or load your favourite Haske
 
 Or watch the screencast (be sure to set 720p HD and then fullscreen):
 
-[https://www.youtube.com/watch?v=xSrgvUHmF5Q](https://www.youtube.com/watch?v=xSrgvUHmF5Q)
+[https://www.youtube.com/watch?v=7yO_VGCWMu8](https://www.youtube.com/watch?v=7yO_VGCWMu8)
 
 ## Notes
 

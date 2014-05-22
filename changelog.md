@@ -1,3 +1,8 @@
+2014-05-22 v0.2.0.4
+
+* Speedup: factor out calls to getGhcOptionsViaCabalRepl.
+* Bug fix: filter out haskell module names from the cabal options list.
+
 2014-05-19 v0.2.0.3
 
 * Fixed test cases.
