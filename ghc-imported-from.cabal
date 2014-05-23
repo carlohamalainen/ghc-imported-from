@@ -30,7 +30,7 @@ library
                  , ghc
                  , ghc-paths
                  , ghc-syb-utils
-                 , ghc-mod
+                 , ghc-mod >= 4.1.1
                  , filepath
                  , safe
                  , process
@@ -64,7 +64,7 @@ executable ghc-imported-from
                , ghc
                , ghc-paths
                , ghc-syb-utils
-               , ghc-mod
+               , ghc-mod >= 4.1.1
                , ghc-imported-from
                , filepath
                , safe
@@ -97,7 +97,7 @@ Test-Suite spec
                       , ghc
                       , ghc-paths
                       , ghc-syb-utils
-                      , ghc-mod
+                      , ghc-mod >= 4.1.1
                       , filepath
                       , safe
                       , process
