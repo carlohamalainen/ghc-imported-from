@@ -107,4 +107,5 @@ To see the GHC options that have been automatically detected, change into your p
 ## Alternatives
 
 As far as I know the only alternative is the ```fpco/hoogle-doc``` function in
-[https://www.fpcomplete.com/page/api](https://www.fpcomplete.com/page/api) but as at May 2014 this requires a [Personal license](https://www.fpcomplete.com/products).
+[https://www.fpcomplete.com/page/api](https://www.fpcomplete.com/page/api). Or try Ctrl-i
+in the web version of FP Complete.
