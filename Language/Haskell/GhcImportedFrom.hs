@@ -246,6 +246,8 @@ getSummary ghcopts targetFile targetModuleName = do
             GhcMonad.liftIO $ putStrLn $ "getSummary, setting dynamic flags..."
             (allGhcOpts, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
+            GhcMonad.liftIO $ putStrLn $ "getSummary, allGhcOpts: " ++ show allGhcOpts
+
             -- Load the target file (e.g. "Muddle.hs").
             GhcMonad.liftIO $ putStrLn $ "getSummary, loading the target file..."
             target <- guessTarget targetFile Nothing
@@ -782,6 +784,9 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     setCurrentDirectory workDir
 
     let targetFile = currentDir </> _targetFile
+
+    putStrLn $ "currentDir: " ++ currentDir
+    putStrLn $ "workDir: " ++ workDir
 
     putStrLn $ "targetFile: " ++ targetFile
     putStrLn $ "targetModule: " ++ targetModule
