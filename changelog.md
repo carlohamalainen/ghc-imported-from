@@ -1,3 +1,7 @@
+2014-06-01 v0.2.0.5
+
+* Version bound on ghc-mod.
+
 2014-05-22 v0.2.0.4
 
 * Speedup: factor out calls to getGhcOptionsViaCabalRepl.
