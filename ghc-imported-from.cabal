@@ -39,6 +39,7 @@ library
                  , mtl
                  , transformers
                  , parsec
+                 , optparse-applicative
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else
@@ -74,6 +75,7 @@ executable ghc-imported-from
                , mtl
                , transformers
                , parsec
+               , optparse-applicative
                , hspec
 
   if impl(ghc < 7.7)
@@ -106,6 +108,7 @@ Test-Suite spec
                       , mtl
                       , transformers
                       , parsec
+                      , optparse-applicative
                       , hspec
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
