@@ -140,7 +140,7 @@ dropModuleNames = filter parseHelper
 parseHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
 parseHaskellModuleName = do
     c <- TP.upper
-    cs <- TP.many (TP.choice [TP.lower, TP.upper])
+    cs <- TP.many (TP.choice [TP.lower, TP.upper, TP.char '_', TP.digit])
     return (c:cs)
 
 parseDottedHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
