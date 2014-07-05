@@ -1,3 +1,8 @@
+2014-07-05 v0.2.0.6
+
+* Use optparse-applicative for argument parsing.
+* Allow digits and underscores in module names.
+
 2014-06-01 v0.2.0.5
 
 * Version bound on ghc-mod.
