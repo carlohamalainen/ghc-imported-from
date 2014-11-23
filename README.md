@@ -83,7 +83,7 @@ to install the Vim plugin.
 
 ### ghc-imported-from-el
 
-For Emacs users, David Christiansen has written [https://github.com/david-christiansen/ghc-imported-from-el](ghc-imported-from-el).
+For Emacs users, David Christiansen has written [ghc-imported-from-el](https://github.com/david-christiansen/ghc-imported-from-el).
 
 ## Usage
 
