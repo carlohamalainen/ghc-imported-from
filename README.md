@@ -76,9 +76,14 @@ fix: https://github.com/haskell/cabal/issues/1810
 
 ### ghcimportedfrom-vim
 
-Follow the instructions at
+For Vim users,
+follow the instructions at
 [https://github.com/carlohamalainen/ghcimportedfrom-vim](https://github.com/carlohamalainen/ghcimportedfrom-vim)
 to install the Vim plugin.
+
+### ghc-imported-from-el
+
+For Emacs users, David Christiansen has written [https://github.com/david-christiansen/ghc-imported-from-el](ghc-imported-from-el).
 
 ## Usage
 
