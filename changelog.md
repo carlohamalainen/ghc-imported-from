@@ -1,3 +1,8 @@
+2015-08-17 v0.2.0.7
+
+* Added a fall-back case when our resolved qualified name
+  does not match anything.
+
 2014-07-05 v0.2.0.6
 
 * Use optparse-applicative for argument parsing.

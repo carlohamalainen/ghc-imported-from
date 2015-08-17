@@ -851,33 +851,48 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
                             then symbol'
                             else modName (head smatches) ++ "." ++ symbol
 
-        GhcMonad.liftIO $ putStrLn $ "symbol'': " ++ symbol''
+        -- Sometimes our attempt to resolve symbol to symbol'' fails, e.g. in a Yesod 1.4 project
+        -- I had "Database.Persist.Sql.createPoolConfig" which resolved to "Database.Persist.Class.PersistConfig.createPoolConfig".
+        -- So here we try with the original symbol provided by the user (which might have been a fully qualified name) and then
+        -- our attempt at resolving it. So many corner cases :(
+        r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol
+        r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol''
 
-        let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
+        return $ case (r1, r2) of
+                    (Right r1', _)      -> Right r1'
+                    (Left _, Right r2') -> Right r2'
+                    (Left l1, _)        -> Left l1
+                    (_, Left l2)        -> Left l2
 
-        -- Then this does a runGhc as well.
-        final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
+rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' = do
 
-        final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions) final1
-        GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
+    GhcMonad.liftIO $ putStrLn $ "symbol'': " ++ symbol''
 
-        -- Remove any modules that have this name hidden.
-        -- e.g. import Data.List hiding (map)
-        let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
-                                                       Nothing -> False) final1'
-        GhcMonad.liftIO $ putStrLn $ "final1'': " ++ show final1''
-        GhcMonad.liftIO $ putStrLn $ show (symbol, haskellModules)
+    let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
 
-        let final2 = filter allJust final1''
-        final3 <- GhcMonad.liftIO $ mapM matchToUrl final2
+    -- Then this does a runGhc as well.
+    final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
 
-        GhcMonad.liftIO $ putStrLn "last bits 5..."
-        if null final3
-            then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames'
-                    if null yyy'''
-                            then return $ Left $ "No matches found."
-                            else return $ Right yyy'''
-                    else return $ Right final3
+    final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions) final1
+    GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
+
+    -- Remove any modules that have this name hidden.
+    -- e.g. import Data.List hiding (map)
+    let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
+                                                   Nothing -> False) final1'
+    GhcMonad.liftIO $ putStrLn $ "final1'': " ++ show final1''
+    GhcMonad.liftIO $ putStrLn $ show (symbol, haskellModules)
+
+    let final2 = filter allJust final1''
+    final3 <- GhcMonad.liftIO $ mapM matchToUrl final2
+
+    GhcMonad.liftIO $ putStrLn "last bits 5..."
+    if null final3
+        then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames'
+                if null yyy'''
+                        then return $ Left $ "No matches found."
+                        else return $ Right yyy'''
+                else return $ Right final3
 
 -- | Top level function; use this one from src/Main.hs.
 haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
