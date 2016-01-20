@@ -1,3 +1,8 @@
+2016-01-20 v0.2.1.0
+
+* Builds on GHC 7.10.3 with the latest version of ghc-mod
+  that is available on Hackage.
+
 2015-08-17 v0.2.0.7
 
 * Added a fall-back case when our resolved qualified name

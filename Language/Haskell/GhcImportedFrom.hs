@@ -78,6 +78,7 @@ import System.FilePath
 import System.IO
 import System.Process
 import TcRnTypes()
+import HsImpExp
 
 import qualified DynFlags()
 import qualified GhcMonad
@@ -92,6 +93,9 @@ import Language.Haskell.GhcMod (
     , Cradle(..)
     )
 
+import Language.Haskell.GhcMod.Monad ( runGmOutT )
+import qualified Language.Haskell.GhcMod.Types as GhcModTypes
+
 import Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
 import Language.Haskell.GhcImportedFrom.Types
 
@@ -99,6 +103,8 @@ import Control.Exception (SomeException)
 
 import qualified Text.Parsec as TP
 import Data.Functor.Identity
+
+import Debug.Trace
 
 #if __GLASGOW_HASKELL__ >= 708
 import DynFlags ( unsafeGlobalDynFlags )
@@ -335,7 +341,14 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           grabNames loc = showSDoc tdflags (ppr names)
             where names = GHC.ieNames $ SrcLoc.unLoc loc
 
-          parseHiding :: Maybe (Bool, [Located (IE RdrName)]) -> [Maybe String]
+          grabNames' :: GHC.Located [GHC.LIE GHC.RdrName] -> [String]
+          grabNames' loc = map (\n -> showSDoc tdflags (ppr n)) names
+            where names :: [RdrName]
+                  names = map (ieName . SrcLoc.unLoc) $ SrcLoc.unLoc loc
+                  -- FIXME We are throwing away location info by using unLoc each time?
+                  -- Trace these things to see what we are losing.
+                  --
+          parseHiding :: Maybe (Bool, Located [LIE RdrName]) -> [Maybe String]
           parseHiding Nothing = [Nothing]
 
           -- If we do
@@ -348,10 +361,10 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           -- Actually hid names, e.g.
           --
           --     import Data.List hiding (map)
-          parseHiding (Just (True, h))  = map (Just . grabNames) h
+          parseHiding (Just (True, h))  = map Just $ grabNames' h
 
-          parseSpecifically :: Maybe (Bool, [Located (IE RdrName)]) -> [String]
-          parseSpecifically (Just (False, h)) = map grabNames h
+          parseSpecifically :: Maybe (Bool, Located [LIE RdrName]) -> [String]
+          parseSpecifically (Just (False, h)) = grabNames' h
           parseSpecifically _                 = []
 
 -- |Find all matches for a symbol in a source file. The last parameter is a list of
@@ -632,18 +645,19 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
 -- | When we use 'parseName' to convert a 'String' to a 'Name' we get a list of matches instead of
 -- a unique match, so we end up having to guess the best match based on the qualified name.
 bestPrefixMatches :: Name -> [GlobalRdrElt] -> [String]
-bestPrefixMatches name lookUp = x''
+bestPrefixMatches name lookUp
+    = case moduleOfQualifiedName name' of
+        Just name'' -> filter (name'' `isPrefixOf`) x'
+        Nothing     -> []
     where name' = showSDoc tdflags $ ppr name
-          name'' = fromJust $ moduleOfQualifiedName name' -- FIXME dangerous fromJust
           x   = concatMap symbolImportedFrom lookUp
           x'  = map (showSDoc tdflags . ppr) x
-          x'' = filter (name'' `isPrefixOf`) x'
 
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
 findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
 findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts (name, lookUp) = do
- -- FIXME this is messy - the code below has a dodgy fromJust...
+ -- FIXME this is messy
  if isJust (moduleOfQualifiedName symbol'')
   then do
     let lastBitOfSymbol = last $ separateBy '.' symbol''
@@ -657,7 +671,9 @@ findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts (name, lookUp) = do
         importedFrom = if null smatches
                             then if null bpms then map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
                                               else catMaybes $ return $ Safe.headMay bpms
-                            else return $ ((showSDoc tdflags . ppr) . mkModuleName . fromJust . moduleOfQualifiedName) symbol'' -- FIXME dangerous fromJust
+                            else return $ case moduleOfQualifiedName symbol'' of
+                                            Nothing             -> trace "Got Nothing when looking up module of qualified name." []
+                                            Just modOfQualSym'' -> ((showSDoc tdflags . ppr) . mkModuleName) modOfQualSym''
 
     putStrLn $ "definedIn: " ++ showSDoc tdflags (ppr definedIn)
     putStrLn $ "bpms: " ++ show bpms
@@ -778,7 +794,7 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
 
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String [String])
 guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcpkgOptions = do
-    cradle <- findCradle
+    cradle <- runGmOutT GhcModTypes.defaultOptions $ findCradle
     let currentDir = cradleCurrentDir cradle
         workDir = cradleRootDir cradle
     setCurrentDirectory workDir
