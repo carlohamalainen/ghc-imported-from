@@ -176,6 +176,27 @@ parseHelper :: String -> Bool
 parseHelper s = case (TP.parse (parseFullHaskellModuleName <* TP.eof) "" s) of Right _ -> False
                                                                                Left _  -> True
 
+-- Parse the package name "containers-0.5.6.2" from a string like
+-- "containers-0.5.6.2@conta_2C3ZI8RgPO2LBMidXKTvIU:Data.Map.Base.fromList"
+parsePackageAndQualName :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
+parsePackageAndQualName = do
+    packageName <- parsePackageName
+    _           <- parsePackageHash
+    qualName    <- parsePackageFinalQualName
+
+    return (packageName, qualName)
+
+  where
+
+    parsePackageName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parsePackageName = TP.anyChar `TP.manyTill` (TP.char '@')
+
+    parsePackageHash :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parsePackageHash = TP.anyChar `TP.manyTill` (TP.char ':')
+
+    parsePackageFinalQualName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parsePackageFinalQualName = TP.many1 TP.anyChar
+
 getGhcOptionsViaCabalReplOrEmpty :: IO [String]
 getGhcOptionsViaCabalReplOrEmpty =  liftM (fromMaybe []) getGhcOptionsViaCabalRepl
 
@@ -518,6 +539,36 @@ qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
 
         return $ bs' ++ es' ++ ps'
 
+-- Like qualifiedName but uses 'reallyAlwaysQualify' to show the fully qualified name, e.g.
+-- "containers-0.5.6.2@conta_2C3ZI8RgPO2LBMidXKTvIU:Data.Map.Base.fromList" instead of
+-- "Data.Map.Base.fromList". Will probably replace qualifiedName once more testing has
+-- been done. If this works we can also remove 'ghcPkgFindModule' which uses a shell
+-- call to try to find the package name.
+qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
+qualifiedName' ghcopts targetFile targetModuleName lineNr colNr importList = do
+        (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
+           `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
+                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
+           `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g
+                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
+           `gcatch` (\(se :: SomeException)  -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SomeException, trying to continue anyway..." ++ show se
+                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
+
+        modSummary <- getModSummary $ mkModuleName targetModuleName :: Ghc ModSummary
+        p <- parseModule modSummary   :: Ghc ParsedModule
+        t <- typecheckModule p        :: Ghc TypecheckedModule
+
+        let TypecheckedModule{tm_typechecked_source = tcs} = t
+            bs = listifySpans tcs (lineNr, colNr) :: [LHsBind Id]
+            es = listifySpans tcs (lineNr, colNr) :: [LHsExpr Id]
+            ps = listifySpans tcs (lineNr, colNr) :: [LPat Id]
+
+        let bs' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) bs
+            es' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) es
+            ps' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) ps
+
+        return $ bs' ++ es' ++ ps'
+
 -- Read everything else available on a handle, and return the empty
 -- string if we have hit EOF.
 readRestOfHandle :: Handle -> IO String
@@ -665,8 +716,11 @@ bestPrefixMatches name lookUp
 
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
-findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions -> (Name, [GlobalRdrElt]) -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
-findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts (name, lookUp) = do
+findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions
+                  -> [Either TP.ParseError (String, String)]
+                  -> (Name, [GlobalRdrElt])
+                  -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
+findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts parsedPackagesAndQualNames (name, lookUp) = do
  -- FIXME this is messy
  if isJust (moduleOfQualifiedName symbol'')
   then do
@@ -695,7 +749,7 @@ findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts (name, lookUp) = do
     forM importedFrom $ \impfrom -> do
         let impfrom' = Just impfrom
         foundModule <- maybe (return Nothing) (ghcPkgFindModule allGhcOpts ghcpkgOpts) impfrom'
-        putStrLn $ "ghcPkgFindModule result: " ++ show foundModule
+        putStrLn $ "ghcPkgFindModule result; parsed package names: " ++ show (foundModule, parsedPackagesAndQualNames)
 
         let base = moduleNameToHtmlFile <$> impfrom'
 
@@ -843,8 +897,13 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         let haskellModuleNames = if null filterThings then map modName haskellModules0 else map modName filterThings
 
         qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
-
         GhcMonad.liftIO $ putStrLn $ "qualified names: " ++ show qnames
+
+        qnames_with_qualified_printing <- filter (not . (' ' `elem`)) <$> qualifiedName' (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames :: Ghc [String]
+        GhcMonad.liftIO $ putStrLn $ "qualified names with qualified printing: " ++ show qnames_with_qualified_printing
+
+        let parsedPackagesAndQualNames :: [Either TP.ParseError (String, String)]
+            parsedPackagesAndQualNames = map (TP.parse parsePackageAndQualName "") qnames_with_qualified_printing
 
         let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
         GhcMonad.liftIO $ putStrLn $ "matchingAsImport: " ++ show matchingAsImport
@@ -885,8 +944,8 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         -- I had "Database.Persist.Sql.createPoolConfig" which resolved to "Database.Persist.Class.PersistConfig.createPoolConfig".
         -- So here we try with the original symbol provided by the user (which might have been a fully qualified name) and then
         -- our attempt at resolving it. So many corner cases :(
-        r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol
-        r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol''
+        r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol   parsedPackagesAndQualNames
+        r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames
 
         return $ case (r1, r2) of
                     (Right r1', _)      -> Right r1'
@@ -894,7 +953,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
                     (Left l1, _)        -> Left l1
                     (_, Left l2)        -> Left l2
 
-rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' = do
+rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames = do
 
     GhcMonad.liftIO $ putStrLn $ "symbol'': " ++ symbol''
 
@@ -903,7 +962,7 @@ rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellM
     -- Then this does a runGhc as well.
     final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
 
-    final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions) final1
+    final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions parsedPackagesAndQualNames) final1
     GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
 
     -- Remove any modules that have this name hidden.
