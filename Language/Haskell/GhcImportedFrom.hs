@@ -96,6 +96,10 @@ import Language.Haskell.GhcMod (
 import Language.Haskell.GhcMod.Monad ( runGmOutT )
 import qualified Language.Haskell.GhcMod.Types as GhcModTypes
 
+import Language.Haskell.GhcMod.Types       (IOish(..))
+import Language.Haskell.GhcMod.Monad.Types (GhcModLog(..), GmOut(..))
+import Control.Monad.Trans.Journal (runJournalT)
+
 import Language.Haskell.GhcImportedFrom.UtilsFromGhcMod
 import Language.Haskell.GhcImportedFrom.Types
 
@@ -113,6 +117,12 @@ tdflags = unsafeGlobalDynFlags
 import DynFlags ( tracingDynFlags )
 tdflags = tracingDynFlags
 #endif
+
+trace' :: Show x => String -> x -> b -> b
+trace' m x = trace (m ++ ">>> " ++ show x)
+
+trace'' :: Outputable x => String -> x -> b -> b
+trace'' m x = trace (m ++ ">>> " ++ (showSDoc tdflags (ppr x)))
 
 type GHCOption = String
 
@@ -783,6 +793,10 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
 
     return yyy'''
 
+-- Copied from ghc-mod-5.5.0.0
+findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
+findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
+
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
 --
@@ -794,7 +808,7 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
 
 guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String [String])
 guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcpkgOptions = do
-    cradle <- runGmOutT GhcModTypes.defaultOptions $ findCradle
+    cradle <- runGmOutT GhcModTypes.defaultOptions $ findCradleNoLog
     let currentDir = cradleCurrentDir cradle
         workDir = cradleRootDir cradle
     setCurrentDirectory workDir

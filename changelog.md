@@ -1,3 +1,7 @@
+2016-01-20 v0.2.1.1
+
+* Builds against ghc-mod-5.5.0.0.
+
 2016-01-20 v0.2.1.0
 
 * Builds on GHC 7.10.3 with the latest version of ghc-mod
