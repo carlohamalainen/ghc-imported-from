@@ -58,6 +58,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Instances()
 import Control.Monad.Writer
+import Data.Either (rights)
 import Data.Function (on)
 import Data.List
 import Data.Maybe
@@ -69,6 +70,7 @@ import GHC
 import GHC.Paths (libdir)
 import GHC.SYB.Utils()
 import HscTypes
+import Module
 import Name
 import Outputable
 import RdrName
@@ -176,10 +178,29 @@ parseHelper :: String -> Bool
 parseHelper s = case (TP.parse (parseFullHaskellModuleName <* TP.eof) "" s) of Right _ -> False
                                                                                Left _  -> True
 
+parsePackageAndQualName = TP.choice [TP.try parsePackageAndQualNameWithHash, parsePackageAndQualNameNoHash]
+
+-- Package with no hash (seems to be for internal packages?)
+-- base-4.8.2.0:Data.Foldable.length
+parsePackageAndQualNameNoHash :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
+parsePackageAndQualNameNoHash = do
+    packageName <- parsePackageName
+    qualName    <- parsePackageFinalQualName
+
+    return (packageName, qualName)
+
+  where
+
+    parsePackageName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parsePackageName = TP.anyChar `TP.manyTill` (TP.char ':')
+
+    parsePackageFinalQualName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parsePackageFinalQualName = TP.many1 TP.anyChar
+
 -- Parse the package name "containers-0.5.6.2" from a string like
 -- "containers-0.5.6.2@conta_2C3ZI8RgPO2LBMidXKTvIU:Data.Map.Base.fromList"
-parsePackageAndQualName :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
-parsePackageAndQualName = do
+parsePackageAndQualNameWithHash :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
+parsePackageAndQualNameWithHash = do
     packageName <- parsePackageName
     _           <- parsePackageHash
     qualName    <- parsePackageFinalQualName
@@ -905,6 +926,51 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         let parsedPackagesAndQualNames :: [Either TP.ParseError (String, String)]
             parsedPackagesAndQualNames = map (TP.parse parsePackageAndQualName "") qnames_with_qualified_printing
 
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ (show parsedPackagesAndQualNames)
+        {-
+        let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
+
+        let Just maybeExtraModule = moduleOfQualifiedName parsed_qname
+
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq1.5: " ++ (show maybeExtraModule)
+
+        setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (maybeExtraModule:haskellModuleNames)
+
+        ------------------------------------------------------
+        when ((length $ rights parsedPackagesAndQualNames) > 1) $ error "derp too many package/qual names"
+
+        -- mynames <- concat <$> (mapM (parseName . snd) $ rights parsedPackagesAndQualNames) :: Ghc [Name]
+        mynames <- concat <$> (mapM parseName) ["Data.List.length"] :: Ghc [Name]
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq1.7: " ++ (show $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) mynames)
+
+        let myoccnames = map occName mynames :: [OccName]
+
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq2: " ++ (show $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) myoccnames)
+
+        -- We need the module that we are in?
+        let module_name = mkModuleName targetModule :: ModuleName
+
+        let package_key = stringToPackageKey $ fst $ head $ rights parsedPackagesAndQualNames :: PackageKey
+
+        let the_module = mkModule package_key module_name :: Module
+
+        -- let zzzzz = showSDoc tdflags (ppr (reallyAlwaysQualifyNames the_module (head myoccnames)))
+        -- GhcMonad.liftIO $ putStrLn $ "0000: " ++ show zzzzz
+
+        -- let q = queryQualifyName (queryQual defaultDumpStyle) the_module (head myoccnames)
+        let q = queryQualifyName (queryQual $ defaultErrStyle tdflags) the_module (head myoccnames)
+
+        let q' = case q of
+                    NameUnqual          -> "NameUnqual"
+                    NameQual mn         -> "mn"
+                    NameNotInScope1     -> "NameNotInScope1"
+                    NameNotInScope2     -> "NameNotInScope2"
+
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq: " ++ show q'
+        -}
+        ------------------------------------------------------
+
+
         let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
         GhcMonad.liftIO $ putStrLn $ "matchingAsImport: " ++ show matchingAsImport
 
@@ -947,9 +1013,16 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol   parsedPackagesAndQualNames
         r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames
 
+        -- If we got a single good package name based on the fully really qualified
+        -- symbol name, then use that to filter the final final final final results. Phew.
+        let filterByPackageName :: [String] -> [String]
+            filterByPackageName = \res -> case parsedPackagesAndQualNames of
+                                            [Right (packName, _)]   -> filter (\x -> packName `isInfixOf` x) res
+                                            _                       -> res
+
         return $ case (r1, r2) of
-                    (Right r1', _)      -> Right r1'
-                    (Left _, Right r2') -> Right r2'
+                    (Right r1', _)      -> Right $ filterByPackageName r1'
+                    (Left _, Right r2') -> Right $ filterByPackageName r2'
                     (Left l1, _)        -> Left l1
                     (_, Left l2)        -> Left l2
 
@@ -990,10 +1063,7 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     let ghcopts    = GhcOptions    $ ghcOpts    opt
     let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
 
-    res <- (guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts)
-    --           `gcatch` (\(s  :: SourceError)   -> return $ Left $ "guessHaddockUrl failed with a SourceError... " ++ show s)
-    --           `gcatch` (\(g  :: GhcApiError)   -> return $ Left $ "guessHaddockUrl failed with a GhcApiError... " ++ show g)
-    --           `gcatch` (\(se :: SomeException) -> return $ Left $ "guessHaddockUrl failed with a SomeException... " ++ show se)
+    res <- guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts
 
     case res of Right x  -> return $ (if length x > 1 then "WARNING: Multiple matches! Showing them all.\n" else "")
                                         ++ (concat $ map (\z -> "SUCCESS: " ++ z ++ "\n") (reverse x)) -- Why reverse? To show the first one last, which the vim plugin will get.
