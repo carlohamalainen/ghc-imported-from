@@ -609,27 +609,38 @@ optsForGhcPkg (_:rest) = optsForGhcPkg rest
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
-    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
-    putStrLn $ "ghc-pkg " ++ show opts
+ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
+    case x of
+        Just x' -> return x -- we found it earlier - this is a hack
+        Nothing -> do error $ show x
+                      let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
+                      putStrLn $ "ghc-pkg " ++ show opts
 
-    (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
-                                                                       , std_out = CreatePipe
-                                                                       , std_err = CreatePipe
-                                                                       }
+                      (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
+                                                                                         , std_out = CreatePipe
+                                                                                         , std_err = CreatePipe
+                                                                                         }
 
-    output <- readRestOfHandle hout
-    err    <- readRestOfHandle herr
+                      output <- readRestOfHandle hout
+                      err    <- readRestOfHandle herr
 
-    putStrLn $ "ghcPkgFindModule stdout: " ++ show output
-    putStrLn $ "ghcPkgFindModule stderr: " ++ show err
+                      putStrLn $ "ghcPkgFindModule stdout: " ++ show output
+                      putStrLn $ "ghcPkgFindModule stderr: " ++ show err
 
-    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+                      return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
--- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+    hc <- hcPkgHaddockUrl p
+
+    case hc of
+        Just hc' -> return $ Just hc'
+        Nothing  -> _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+
+-- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
+_ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+_ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
     let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
@@ -640,6 +651,25 @@ ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
 
     line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
     return $ Safe.lastMay $ words line
+
+-- | Call cabal sandbox hc-pkg to find the haddock url.
+hcPkgHaddockUrl :: String -> IO (Maybe String)
+hcPkgHaddockUrl p = do
+    let opts = ["sandbox", "hc-pkg", "field", p, "haddock-html"]
+    putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-html"
+
+    (_, Just hout, _, _) <- createProcess (proc "cabal" opts){ std_in = CreatePipe
+                                                             , std_out = CreatePipe
+                                                             , std_err = CreatePipe
+                                                             }
+
+    line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
+    print ("line", line)
+
+    if "haddock-html:" `isInfixOf` line
+        then do print ("line2", Safe.lastMay $ words line)
+                return $ Safe.lastMay $ words line
+        else return Nothing
 
 -- | Convert a module name string, e.g. @Data.List@ to @Data-List.html@.
 moduleNameToHtmlFile :: String -> String
@@ -735,6 +765,12 @@ bestPrefixMatches name lookUp
           x   = concatMap symbolImportedFrom lookUp
           x'  = map (showSDoc tdflags . ppr) x
 
+
+getSinglePackageName parsedPackagesAndQualNames
+    = case parsedPackagesAndQualNames of
+        [Right (packName, _)]   -> Just packName
+        _                       -> Nothing
+
 -- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
 -- from, haddock url, module, and module's HTML filename.
 findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions
@@ -769,7 +805,10 @@ findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts parsedPackagesAndQualN
 
     forM importedFrom $ \impfrom -> do
         let impfrom' = Just impfrom
-        foundModule <- maybe (return Nothing) (ghcPkgFindModule allGhcOpts ghcpkgOpts) impfrom'
+
+        let alreadyFoundPackageName = getSinglePackageName parsedPackagesAndQualNames
+
+        foundModule <- maybe (return Nothing) (ghcPkgFindModule alreadyFoundPackageName allGhcOpts ghcpkgOpts) impfrom'
         putStrLn $ "ghcPkgFindModule result; parsed package names: " ++ show (foundModule, parsedPackagesAndQualNames)
 
         let base = moduleNameToHtmlFile <$> impfrom'
@@ -839,12 +878,15 @@ finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames' = do
                                                     else return []
     return $ concat blah
 
-actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellModuleNames' = do
+actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellModuleNames' parsedPackagesAndQualNames = do
     -- This is getting ridiculous...
     GhcMonad.liftIO $ putStrLn "last bits 1..."
     zzz <- finalCase allGhcOpts targetFile targetModule symbol haskellModuleNames'
     GhcMonad.liftIO $ putStrLn "last bits 2..."
-    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule allGhcOpts ghcpkgOptions r
+
+    let alreadyFoundPackageName = getSinglePackageName parsedPackagesAndQualNames
+
+    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule alreadyFoundPackageName allGhcOpts ghcpkgOptions r
                                GhcMonad.liftIO $ print $ "forM_ last bits: " ++ show p
                                case p of Nothing  -> return []
                                          (Just _) -> return [(r, fromJust p)]
@@ -854,6 +896,7 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
     GhcMonad.liftIO $ putStrLn "last bits 3..."
     -- FIXME why don't we have the full ghc options right now? More than just the user-supplied ones?
     yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl allGhcOpts (GhcPkgOptions allGhcOpts) pname
+                                               GhcMonad.liftIO $ print ("haddock", haddock)
                                                if isJust haddock
                                                      then do GhcMonad.liftIO $ putStrLn $ "last bits 3 inner loop: " ++ show haddock
                                                              url <- GhcMonad.liftIO $ matchToUrl (Just mname, haddock, Just mname, Just $ moduleNameToHtmlFile mname)
@@ -1013,6 +1056,8 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol   parsedPackagesAndQualNames
         r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames
 
+        GhcMonad.liftIO $ print ("r1, r2", r1, r2)
+
         -- If we got a single good package name based on the fully really qualified
         -- symbol name, then use that to filter the final final final final results. Phew.
         let filterByPackageName :: [String] -> [String]
@@ -1050,7 +1095,8 @@ rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellM
 
     GhcMonad.liftIO $ putStrLn "last bits 5..."
     if null final3
-        then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames'
+        then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames' parsedPackagesAndQualNames
+                GhcMonad.liftIO $ print ("actualFinalCase, yyy'''", yyy''')
                 if null yyy'''
                         then return $ Left $ "No matches found."
                         else return $ Right yyy'''
@@ -1064,6 +1110,7 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     let ghcpkgopts = GhcPkgOptions $ ghcPkgOpts opt
 
     res <- guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts
+    print ("res", show res)
 
     case res of Right x  -> return $ (if length x > 1 then "WARNING: Multiple matches! Showing them all.\n" else "")
                                         ++ (concat $ map (\z -> "SUCCESS: " ++ z ++ "\n") (reverse x)) -- Why reverse? To show the first one last, which the vim plugin will get.
