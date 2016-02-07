@@ -165,10 +165,7 @@ parseHaskellModuleName = do
     return (c:cs)
 
 parseDottedHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-parseDottedHaskellModuleName = do
-    TP.char '.'
-    cs <- parseHaskellModuleName
-    return cs
+parseDottedHaskellModuleName = TP.char '.' >> parseHaskellModuleName
 
 parseFullHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
 parseFullHaskellModuleName = do
@@ -953,6 +950,15 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
 findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
 findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
 
+getModuleExports :: String -> Ghc [String]
+getModuleExports m = do
+    theModule <- findModule (mkModuleName m) Nothing
+    minfo     <- getModuleInfo theModule
+
+    case minfo of
+        Nothing     -> error $ "Could not get module info for: " ++ m
+        Just minfo' -> return $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo'
+
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
 --
@@ -983,7 +989,6 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
     putStrLn $ "ghcOpts0: " ++ show ghcOpts0
     putStrLn $ "ghcpkgOptions: " ++ show ghcpkgOptions
 
-    -- Put a runGhc up here, then change the types further down???
     runGhc (Just libdir) $ do
         (allGhcOpts, textualImports) <- getTextualImports (GhcOptions ghcOpts0) targetFile targetModule
 
@@ -1017,14 +1022,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         --                        [z]  -> z
         --                        blah -> error $ show blah
 
-        forM_ haskellModuleNames0 $ \m -> do -- Just pname <- GhcMonad.liftIO $ ghcPkgFindModule Nothing allGhcOpts ghcpkgOptions m
-                                             -- let package_key = stringToPackageKey $ matchBlah allGhcOpts pname
-                                             GhcMonad.liftIO $ print m
-                                             -- let the_module = mkModule package_key (mkModuleName m) :: Module
-                                             the_module <- findModule (mkModuleName m) Nothing
-                                             Just minfo <- getModuleInfo the_module
-                                             let exports = modInfoExports minfo
-                                             GhcMonad.liftIO $ putStrLn $ showSDoc tdflags $ ppr exports
+        forM_ haskellModuleNames0 $ \m -> do exports <- getModuleExports m
+                                             GhcMonad.liftIO $ print (m, exports)
+
+        error ""
 
         {-
         let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
