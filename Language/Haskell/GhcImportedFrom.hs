@@ -381,13 +381,9 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           name       = showSDoc tdflags (ppr $ GHC.ideclName idecl')
           isImplicit = GHC.ideclImplicit idecl'
           qualifier  = unpackFS <$> GHC.ideclPkgQual idecl'
-          hiding     = map removeBrackets $ (catMaybes . parseHiding . GHC.ideclHiding) idecl'
+          hiding     = (catMaybes . parseHiding . GHC.ideclHiding) idecl'
           importedAs = (showSDoc tdflags . ppr) <$> ideclAs idecl'
-          specifically = map removeBrackets $ (parseSpecifically . GHC.ideclHiding) idecl'
-
-          removeBrackets :: [a] -> [a]
-          removeBrackets [] = []
-          removeBrackets x = (init . tail) x
+          specifically = (parseSpecifically . GHC.ideclHiding) idecl'
 
           grabNames :: GHC.Located (GHC.IE GHC.RdrName) -> String
           grabNames loc = showSDoc tdflags (ppr names)
@@ -1024,8 +1020,6 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         forM_ haskellModuleNames0 $ \m -> do exports <- getModuleExports m
                                              GhcMonad.liftIO $ print (m, exports)
-
-        error ""
 
         {-
         let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
