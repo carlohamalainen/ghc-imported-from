@@ -81,6 +81,9 @@ import System.IO
 import System.Process
 import TcRnTypes()
 import HsImpExp
+import HsTypes
+import Type
+import HsPat
 
 import qualified DynFlags()
 import qualified GhcMonad
@@ -565,8 +568,8 @@ qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
 -- "Data.Map.Base.fromList". Will probably replace qualifiedName once more testing has
 -- been done. If this works we can also remove 'ghcPkgFindModule' which uses a shell
 -- call to try to find the package name.
-qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
-qualifiedName' ghcopts targetFile targetModuleName lineNr colNr importList = do
+qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> String -> [String] -> Ghc [String]
+qualifiedName' ghcopts targetFile targetModuleName lineNr colNr symbol importList = do
         (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
@@ -583,12 +586,20 @@ qualifiedName' ghcopts targetFile targetModuleName lineNr colNr importList = do
             bs = listifySpans tcs (lineNr, colNr) :: [LHsBind Id]
             es = listifySpans tcs (lineNr, colNr) :: [LHsExpr Id]
             ps = listifySpans tcs (lineNr, colNr) :: [LPat Id]
+            -- ls0 = listifySpans tcs (lineNr, colNr) :: [LHsBindLR Id Id]
+            -- ls1 = listifySpans tcs (lineNr, colNr) :: [LIPBind Id]
+            -- ls2 = listifySpans tcs (lineNr, colNr) :: [LPat Id]
+            -- ls3 = listifySpans tcs (lineNr, colNr) :: [LHsDecl Id]
+            -- ls4 = listifySpans tcs (lineNr, colNr) :: [LHsExpr Id]
+            -- ls5 = listifySpans tcs (lineNr, colNr) :: [LHsTupArg Id]
+            -- ls6 = listifySpans tcs (lineNr, colNr) :: [LHsCmd Id]
+            -- ls7 = listifySpans tcs (lineNr, colNr) :: [LHsCmdTop Id]
 
         let bs' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) bs
             es' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) es
             ps' = map (showSDocForUser tdflags reallyAlwaysQualify . ppr) ps
 
-        return $ bs' ++ es' ++ ps'
+        return $ filter (postfixMatch symbol) $ concatMap words $ bs' ++ es' ++ ps'
 
 -- Read everything else available on a handle, and return the empty
 -- string if we have hit EOF.
@@ -607,14 +618,21 @@ optsForGhcPkg ("-package-conf":pc:rest)      = ("--package-conf" ++ "=" ++ pc) :
 optsForGhcPkg ("-no-user-package-conf":rest) = "--no-user-package-conf"        : optsForGhcPkg rest
 optsForGhcPkg (_:rest) = optsForGhcPkg rest
 
+ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+    sandboxResult <- hcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+
+    case sandboxResult of
+        Nothing     -> _ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+        s@(Just _)  -> return s
+
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
+_ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+_ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
     case x of
         Just x' -> return x -- we found it earlier - this is a hack
-        Nothing -> do error $ show x
-                      let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
+        Nothing -> do let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
                       putStrLn $ "ghc-pkg " ++ show opts
 
                       (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
@@ -627,6 +645,26 @@ ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
 
                       putStrLn $ "ghcPkgFindModule stdout: " ++ show output
                       putStrLn $ "ghcPkgFindModule stderr: " ++ show err
+
+                      return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+
+-- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
+hcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+hcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
+    case x of
+        Just x' -> return x -- we found it earlier - this is a hack
+        Nothing -> do let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
+
+                      (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
+                                                                                       , std_out = CreatePipe
+                                                                                       , std_err = CreatePipe
+                                                                                       }
+
+                      output <- readRestOfHandle hout
+                      err    <- readRestOfHandle herr
+
+                      putStrLn $ "hcPkgFindModule stdout: " ++ show output
+                      putStrLn $ "hcPkgFindModule stderr: " ++ show err
 
                       return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
@@ -963,13 +1001,31 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
         GhcMonad.liftIO $ putStrLn $ "qualified names: " ++ show qnames
 
-        qnames_with_qualified_printing <- filter (not . (' ' `elem`)) <$> qualifiedName' (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames :: Ghc [String]
+        qnames_with_qualified_printing <- filter (not . (' ' `elem`)) <$> qualifiedName' (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr symbol haskellModuleNames :: Ghc [String]
         GhcMonad.liftIO $ putStrLn $ "qualified names with qualified printing: " ++ show qnames_with_qualified_printing
 
         let parsedPackagesAndQualNames :: [Either TP.ParseError (String, String)]
             parsedPackagesAndQualNames = map (TP.parse parsePackageAndQualName "") qnames_with_qualified_printing
 
         GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ (show parsedPackagesAndQualNames)
+
+
+        -- Sometimes the previous step can fail, e.g. looking at "Maybe" in a type singature. No idea why.
+        -- Possibly due to listifySpans not handling the RHS of a definition???
+
+        --let matchBlah xs x = case filter (x `isPrefixOf`) xs of
+        --                        [z]  -> z
+        --                        blah -> error $ show blah
+
+        forM_ haskellModuleNames0 $ \m -> do -- Just pname <- GhcMonad.liftIO $ ghcPkgFindModule Nothing allGhcOpts ghcpkgOptions m
+                                             -- let package_key = stringToPackageKey $ matchBlah allGhcOpts pname
+                                             GhcMonad.liftIO $ print m
+                                             -- let the_module = mkModule package_key (mkModuleName m) :: Module
+                                             the_module <- findModule (mkModuleName m) Nothing
+                                             Just minfo <- getModuleInfo the_module
+                                             let exports = modInfoExports minfo
+                                             GhcMonad.liftIO $ putStrLn $ showSDoc tdflags $ ppr exports
+
         {-
         let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
 
