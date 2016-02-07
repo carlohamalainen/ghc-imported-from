@@ -946,14 +946,80 @@ actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellM
 findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
 findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
 
-getModuleExports :: String -> Ghc [String]
+getModuleExports :: HaskellModule -> Ghc [String]
 getModuleExports m = do
-    theModule <- findModule (mkModuleName m) Nothing
+    theModule <- findModule (mkModuleName $ modName m) Nothing
     minfo     <- getModuleInfo theModule
 
     case minfo of
-        Nothing     -> error $ "Could not get module info for: " ++ m
+        Nothing     -> error $ "Could not get module info for: " ++ show m
         Just minfo' -> return $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo'
+
+type UnqualifiedName    = String    -- ^ e.g. "Just"
+type FullyQualifiedName = String    -- ^ e.g. e.g. "base-4.8.2.0:Data.Foldable.length"
+type StrModuleName      = String    -- ^ e.g. "Data.List"
+
+data MySymbol = MySymbolSysQualified  String  -- ^ e.g. "base-4.8.2.0:Data.Foldable.length"
+              | MySymbolUserQualified String  -- ^ e.g. "DL.length" with an import earlier like "import qualified Data.List as DL"
+              deriving Show
+
+data ModuleExports = ModuleExports
+    { mName            :: StrModuleName            -- ^ e.g. "Data.List"
+    , mInfo            :: HaskellModule            -- ^ Our parse of the module import, with info like "hiding (map)".
+    , qualifiedExports :: [FullyQualifiedName]     -- ^ e.g. [ "base-4.8.2.0:GHC.Base.++"
+                                                        --        , "base-4.8.2.0:GHC.List.filter"
+                                                        --        , "base-4.8.2.0:GHC.List.zip"
+                                                        --        , ...
+                                                        --        ]
+    }
+    deriving Show
+
+pprModuleExports :: ModuleExports -> String
+pprModuleExports me = mName me ++ "\n" ++ (show $ mInfo me) ++ "\n" ++ intercalate " " (map show $ qualifiedExports me)
+
+refineAs :: MySymbol -> [ModuleExports] -> [ModuleExports]
+
+-- User qualified the symbol, so we can filter out anything that doesn't have a matching 'modImportedAs'.
+refineAs (MySymbolUserQualified userQualSym) exports = filter f exports
+  where
+    f export = case modas of
+                Nothing     -> False
+                Just modas' -> modas' == userQualAs
+       where modas = modImportedAs $ mInfo export :: Maybe String
+
+             -- e.g. "DL"
+             userQualAs = case moduleOfQualifiedName userQualSym of
+                            Nothing -> error $ "Expected a qualified name like 'DL.length' but got: " ++ userQualSym
+                            Just x  -> x
+
+-- User didn't qualify the symbol, so we have the full system qualified thing, so do nothing here.
+refineAs (MySymbolSysQualified _) exports = exports
+
+refineRemoveHiding :: String -> [ModuleExports] -> [ModuleExports]
+refineRemoveHiding symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
+  where
+    f symbol export = filter (\te -> not $ te `elem` hiding') thisExports
+       where hiding = modHiding $ mInfo export :: [String] -- Things that this module hides.
+             hiding' = map (qualifyName thisExports) hiding  :: [String]    -- Qualified version of hiding.
+             thisExports = qualifiedExports export         -- Things that this module exports.
+
+    qualifyName :: [QualifiedName] -> Symbol -> QualifiedName
+    qualifyName qualifiedNames name
+        = case filter (postfixMatch name) qualifiedNames of
+            [match]     -> match
+            _           -> error $ "Could not qualify " ++ name ++ " from these exports: " ++ show qualifiedNames
+
+refineExportsIt :: String -> [ModuleExports] -> [ModuleExports]
+refineExportsIt symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
+  where
+    f symbol export = filter (symbol ==) thisExports
+       where thisExports = qualifiedExports export         -- Things that this module exports.
+
+-- | The last thing with a single export must be the match? Iffy.
+getLastMatch :: [ModuleExports] -> Maybe ModuleExports
+getLastMatch exports = Safe.lastMay $ filter f exports
+  where
+    f me = length (qualifiedExports me) == 1
 
 -- | Attempt to guess the Haddock url, either a local file path or url to @hackage.haskell.org@
 -- for the symbol in the given file, module, at the specified line and column location.
@@ -1010,16 +1076,54 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ (show parsedPackagesAndQualNames)
 
+        let symbolToUse :: String
+            symbolToUse = case Safe.headMay qnames_with_qualified_printing of
+                            Just s  -> s
+                            Nothing -> head qnames -- FIXME
 
-        -- Sometimes the previous step can fail, e.g. looking at "Maybe" in a type singature. No idea why.
-        -- Possibly due to listifySpans not handling the RHS of a definition???
+        GhcMonad.liftIO $ print ("symbolToUse", symbolToUse)
 
-        --let matchBlah xs x = case filter (x `isPrefixOf`) xs of
-        --                        [z]  -> z
-        --                        blah -> error $ show blah
+        -- Try to use the qnames_with_qualified_printing case, which has something like "base-4.8.2.0:GHC.Base.map",
+        -- which will be more accurate to filter on.
 
-        forM_ haskellModuleNames0 $ \m -> do exports <- getModuleExports m
-                                             GhcMonad.liftIO $ print (m, exports)
+
+        exports <- mapM getModuleExports haskellModules0
+        -- let upToNow = (qnames, parsedPackagesAndQualNames, zip haskellModuleNames0 exports)
+
+        let upToNow = map (\(m, e) -> ModuleExports { mName             = modName m
+                                                    , mInfo             = m
+                                                    , qualifiedExports  = e
+                                                    }) (zip haskellModules0 exports)
+
+        GhcMonad.liftIO $ forM_ upToNow $ \x -> putStrLn $ pprModuleExports x
+
+        -- Get all "as" imports.
+        let asImports :: [String]
+            asImports = catMaybes $ map (modImportedAs . mInfo) upToNow
+
+        -- Can a user do "import xxx as Foo.Bar"??? Check this.
+
+        let mySymbol = case moduleOfQualifiedName symbol of
+                        Nothing     -> MySymbolSysQualified symbolToUse
+                        Just x      -> if x `elem` asImports
+                                            then MySymbolUserQualified symbol
+                                            else MySymbolSysQualified symbolToUse
+
+        GhcMonad.liftIO $ print mySymbol
+
+        let upToNow0 = refineAs mySymbol upToNow
+        GhcMonad.liftIO $ putStrLn "upToNow0"
+        GhcMonad.liftIO $ forM_ upToNow0 $ \x -> putStrLn $ pprModuleExports x
+
+        let upToNow1 = refineRemoveHiding symbolToUse upToNow0
+        GhcMonad.liftIO $ putStrLn "upToNow1"
+        GhcMonad.liftIO $ forM_ upToNow1 $ \x -> putStrLn $ pprModuleExports x
+
+        let upToNow2 = refineExportsIt symbolToUse upToNow1
+        GhcMonad.liftIO $ putStrLn "upToNow2"
+        GhcMonad.liftIO $ forM_ upToNow2 $ \x -> putStrLn $ pprModuleExports x
+
+        -- error $ "last match: " ++ show (getLastMatch upToNow2)
 
         {-
         let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
