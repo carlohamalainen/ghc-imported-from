@@ -37,11 +37,7 @@ module Language.Haskell.GhcImportedFrom (
    , ghcPkgFindModule
    , ghcPkgHaddockUrl
    , moduleNameToHtmlFile
-   , expandMatchingAsImport
-   , specificallyMatches
    , toHackageUrl
-   , bestPrefixMatches
-   , findHaddockModule
    , matchToUrl
    , guessHaddockUrl
    , haddockUrl
@@ -652,64 +648,6 @@ moduleNameToHtmlFile m =  map f m ++ ".html"
           f '.' = '-'
           f c   = c
 
--- | If the Haskell module has an import like @import qualified Data.List as DL@, convert an
--- occurence @DL.fromList@ to the qualified name using the actual module name: @Data.List.fromList@.
---
--- Example:
---
--- > -- Muddle.hs
--- >
--- > module Muddle where
--- >
--- > import Data.Maybe
--- > import qualified Data.List as DL
--- > import qualified Data.Map as DM
--- > import qualified Safe
---
--- then:
---
--- >>> hmodules <- map toHaskellModule <$> getTextualImports "tests/data/data/Muddle.hs" "Muddle"
--- >>> print $ expandMatchingAsImport "DL.fromList" hmodules
--- Just "Data.List.fromList"
-
-expandMatchingAsImport :: QualifiedName -> [HaskellModule] -> Maybe QualifiedName
-expandMatchingAsImport symbol hmodules = case x of (Just (h, Just cp)) -> Just $ modName h ++ drop (length cp) symbol
-                                                   _                     -> Nothing
-    where x = Safe.headMay $ filter (isJust . snd) $ zip hmodules (map (cmpMod symbol) hmodules)
-
-          cmpMod s (HaskellModule _ _ _ _ (Just impAs) _) = if impAs `isPrefixOf` s
-                                                               then Just $ commonPrefix s impAs
-                                                               else Nothing
-          cmpMod _ _ = Nothing
-
-          -- http://www.haskell.org/pipermail/beginners/2011-April/006856.html
-          commonPrefix :: Eq a => [a] -> [a] -> [a]
-          commonPrefix a b = map fst (takeWhile (uncurry (==)) (zip a b))
-
--- | Return list of modules which explicitly import a symbol.
---
--- Example:
---
--- > -- Hiding.hs
--- > module Hiding where
--- > import Data.List hiding (map)
--- > import System.Environment (getArgs)
--- > import qualified Safe
---
--- >>> hmodules <- map toHaskellModule <$> getTextualImports "tests/data/data/Hiding.hs" "Hiding"
--- >>> print $ specificallyMatches "getArgs" hmodules
--- [ HaskellModule { modName = "System.Environment"
---                 , modQualifier = Nothing
---                 , modIsImplicit = False
---                 , modHiding = []
---                 , modImportedAs = Nothing
---                 , modSpecifically = ["getArgs"]
---                 }
--- ]
-
-specificallyMatches :: Symbol -> [HaskellModule] -> [HaskellModule]
-specificallyMatches symbol = filter (\h -> symbol `elem` modSpecifically h)
-
 -- | Convert a file path to a Hackage HTML file to its equivalent on @https://hackage.haskell.org@.
 toHackageUrl :: FilePath -> String -> String -> String
 toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/" ++ package ++ "/" ++ "docs/" ++ modulename''
@@ -727,76 +665,6 @@ toHackageUrl filepath package modulename = "https://hackage.haskell.org/package/
           substringP :: String -> String -> Maybe Int
           substringP _ []  = Nothing
           substringP sub str = if sub `isPrefixOf` str then Just 0 else (+1) <$> substringP sub (tail str)
-
--- | When we use 'parseName' to convert a 'String' to a 'Name' we get a list of matches instead of
--- a unique match, so we end up having to guess the best match based on the qualified name.
-bestPrefixMatches :: Name -> [GlobalRdrElt] -> [String]
-bestPrefixMatches name lookUp
-    = case moduleOfQualifiedName name' of
-        Just name'' -> filter (name'' `isPrefixOf`) x'
-        Nothing     -> []
-    where name' = showSDoc tdflags $ ppr name
-          x   = concatMap symbolImportedFrom lookUp
-          x'  = map (showSDoc tdflags . ppr) x
-
-
-getSinglePackageName parsedPackagesAndQualNames
-    = case parsedPackagesAndQualNames of
-        [Right (packName, _)]   -> Just packName
-        _                       -> Nothing
-
--- | Find the haddock module. Returns a 4-tuple consisting of: module that the symbol is imported
--- from, haddock url, module, and module's HTML filename.
-findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptions
-                  -> [Either TP.ParseError (String, String)]
-                  -> (Name, [GlobalRdrElt])
-                  -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
-findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts parsedPackagesAndQualNames (name, lookUp) =
- -- FIXME this is messy
- if isJust (moduleOfQualifiedName symbol'')
-  then do
-    let lastBitOfSymbol = last $ separateBy '.' symbol''
-    putStrLn $ "findHaddockModule, symbol'': " ++ symbol''
-    putStrLn $ "findHaddockModule, lastBitOfSymbol: " ++ lastBitOfSymbol
-    putStrLn $ "name: " ++ showSDoc tdflags (ppr name)
-
-    let definedIn = nameModule name
-        bpms = bestPrefixMatches name lookUp
-        importedFrom :: [String]
-        importedFrom = if null smatches
-                            then if null bpms then map (showSDoc tdflags . ppr) $ concatMap symbolImportedFrom lookUp
-                                              else catMaybes $ return $ Safe.headMay bpms
-                            else return $ case moduleOfQualifiedName symbol'' of
-                                            Nothing             -> trace "Got Nothing when looking up module of qualified name." []
-                                            Just modOfQualSym'' -> ((showSDoc tdflags . ppr) . mkModuleName) modOfQualSym''
-
-    putStrLn $ "definedIn: " ++ showSDoc tdflags (ppr definedIn)
-    putStrLn $ "bpms: " ++ show bpms
-    putStrLn $ "concat $ map symbolImportedFrom lookUp: " ++ showSDoc tdflags (ppr $ concatMap symbolImportedFrom lookUp)
-
-
-    putStrLn $ "importedFrom: " ++ show importedFrom
-
-    forM importedFrom $ \impfrom -> do
-        let impfrom' = Just impfrom
-
-        let alreadyFoundPackageName = getSinglePackageName parsedPackagesAndQualNames
-
-        foundModule <- maybe (return Nothing) (ghcPkgFindModule alreadyFoundPackageName allGhcOpts ghcpkgOpts) impfrom'
-        putStrLn $ "ghcPkgFindModule result; parsed package names: " ++ show (foundModule, parsedPackagesAndQualNames)
-
-        let base = moduleNameToHtmlFile <$> impfrom'
-
-        putStrLn $ "base: : " ++ show base
-
-        haddock <- maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOpts) foundModule
-
-        putStrLn $ "haddock: " ++ show haddock
-        putStrLn $ "foundModule1: " ++ show foundModule
-
-        return (impfrom', haddock, foundModule, base)
-  else
-    return []
 
 -- | Convert our match to a URL, either @file://@ if the file exists, or to @hackage.org@ otherwise.
 matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> IO String
@@ -821,25 +689,10 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
                  putStrLn $ "calling toHackageUrl with params: " ++ show (f, foundModule', importedFrom')
                  return $ toHackageUrl f foundModule' importedFrom'
 
--- | The 'concatMapM' function generalizes 'concatMap' to arbitrary monads.
-concatMapM        :: (Monad m) => (a -> m [b]) -> [a] -> m [b]
-concatMapM f xs   =  liftM concat (mapM f xs)
-
-isHidden :: String -> String -> HaskellModule -> Bool
-isHidden symbol mname (HaskellModule name qualifier isImplicit hiding importedAs specifically) = mname == name && isNothing importedAs && symbol `elem` hiding
-
 filterMatchingQualifiedImport :: String -> [HaskellModule] -> [HaskellModule]
 filterMatchingQualifiedImport symbol hmodules =
     case moduleOfQualifiedName symbol of Nothing    -> []
                                          asBit@(Just _) -> filter (\z -> asBit == modImportedAs z) hmodules
-
-isInHiddenPackage :: GhcMonad m => String -> m Bool
-isInHiddenPackage mName =
-    (do setContext $ map (IIDecl . simpleImportDecl . mkModuleName) [mName]
-        -- We were able to load the package, so it is not hidden.
-        return False)
-        `gcatch` (\(_  :: SourceError) -> do GhcMonad.liftIO $ putStrLn $ "isInHiddenPackage: module " ++ mName ++ " is in a hidden package."
-                                             return True)
 
 -- Copied from ghc-mod-5.5.0.0
 findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
