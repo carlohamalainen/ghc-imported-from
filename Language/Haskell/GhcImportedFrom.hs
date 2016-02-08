@@ -878,7 +878,6 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
                  putStrLn $ "calling toHackageUrl with params: " ++ show (f, foundModule', importedFrom')
                  return $ toHackageUrl f foundModule' importedFrom'
 
-
 -- | The 'concatMapM' function generalizes 'concatMap' to arbitrary monads.
 concatMapM        :: (Monad m) => (a -> m [b]) -> [a] -> m [b]
 concatMapM f xs   =  liftM concat (mapM f xs)
@@ -1012,7 +1011,19 @@ refineRemoveHiding symbol exports = map (\e -> e { qualifiedExports = f symbol e
 refineExportsIt :: String -> [ModuleExports] -> [ModuleExports]
 refineExportsIt symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
   where
-    f symbol export = filter (symbol ==) thisExports
+    -- f symbol export = filter (symbol ==) thisExports
+    f symbol export = filter (postfixMatch symbol) thisExports
+       where thisExports = qualifiedExports export         -- Things that this module exports.
+
+refineLeadingDot :: MySymbol -> [ModuleExports] -> [ModuleExports]
+refineLeadingDot (MySymbolUserQualified userQualSym) exports = exports
+refineLeadingDot (MySymbolSysQualified symb)         exports = map (\e -> e { qualifiedExports = f leadingDot e }) exports
+  where
+    leadingDot :: String
+    leadingDot = '.' : (last $ separateBy '.' symb)
+
+    -- f symbol export = filter (symbol ==) thisExports
+    f symbol export = filter (symbol `isSuffixOf`) thisExports
        where thisExports = qualifiedExports export         -- Things that this module exports.
 
 -- | The last thing with a single export must be the match? Iffy.
@@ -1123,52 +1134,38 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn "upToNow2"
         GhcMonad.liftIO $ forM_ upToNow2 $ \x -> putStrLn $ pprModuleExports x
 
-        -- error $ "last match: " ++ show (getLastMatch upToNow2)
+        let upToNow3 = refineLeadingDot mySymbol upToNow2
+        GhcMonad.liftIO $ putStrLn "upToNow3"
+        GhcMonad.liftIO $ forM_ upToNow3 $ \x -> putStrLn $ pprModuleExports x
 
-        {-
-        let Right (pname, parsed_qname) = head parsedPackagesAndQualNames
+        let lastMatch = getLastMatch upToNow3
+        GhcMonad.liftIO $ print $ "last match: " ++ show lastMatch
 
-        let Just maybeExtraModule = moduleOfQualifiedName parsed_qname
+        -- "last match: Just (ModuleExports {mName = \"Control.Monad\", mInfo = HaskellModule {modName = \"Control.Monad\", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing, modSpecifically = [\"forM_\",\"liftM\",\"filterM\",\"when\",\"unless\"]}, qualifiedExports = [\"base-4.8.2.0:GHC.Base.when\"]})"
 
-        GhcMonad.liftIO $ putStrLn $ "qqqqqq1.5: " ++ (show maybeExtraModule)
+        let matchedModule :: String
+            matchedModule = case mName <$> lastMatch of
+                                Just mod    -> mod
+                                _           -> error $ "No nice match in lastMatch for module: " ++ show lastMatch
 
-        setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (maybeExtraModule:haskellModuleNames)
+        let matchedPackage :: String
+            matchedPackage = case qualifiedExports <$> lastMatch of
+                                Just [pkg]  -> head $ separateBy ':' pkg -- FIXME unsafe head
+                                _           -> error $ "No nice match in lastMatch for package: " ++ show lastMatch
 
-        ------------------------------------------------------
-        when ((length $ rights parsedPackagesAndQualNames) > 1) $ error "derp too many package/qual names"
+        haddock <- GhcMonad.liftIO $ (Safe.lastMay . catMaybes) <$> (mapM (\m -> maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOptions) (Just m)) (inits matchedPackage))
 
-        -- mynames <- concat <$> (mapM (parseName . snd) $ rights parsedPackagesAndQualNames) :: Ghc [Name]
-        mynames <- concat <$> (mapM parseName) ["Data.List.length"] :: Ghc [Name]
-        GhcMonad.liftIO $ putStrLn $ "qqqqqq1.7: " ++ (show $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) mynames)
+        GhcMonad.liftIO $ putStrLn $ "at the end now: " ++ show (matchedModule, moduleNameToHtmlFile matchedModule, matchedPackage, haddock)
 
-        let myoccnames = map occName mynames :: [OccName]
+        url <- GhcMonad.liftIO $ matchToUrl (Just matchedModule, haddock, Just matchedModule, Just $ moduleNameToHtmlFile matchedModule)
 
-        GhcMonad.liftIO $ putStrLn $ "qqqqqq2: " ++ (show $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) myoccnames)
-
-        -- We need the module that we are in?
-        let module_name = mkModuleName targetModule :: ModuleName
-
-        let package_key = stringToPackageKey $ fst $ head $ rights parsedPackagesAndQualNames :: PackageKey
-
-        let the_module = mkModule package_key module_name :: Module
-
-        -- let zzzzz = showSDoc tdflags (ppr (reallyAlwaysQualifyNames the_module (head myoccnames)))
-        -- GhcMonad.liftIO $ putStrLn $ "0000: " ++ show zzzzz
-
-        -- let q = queryQualifyName (queryQual defaultDumpStyle) the_module (head myoccnames)
-        let q = queryQualifyName (queryQual $ defaultErrStyle tdflags) the_module (head myoccnames)
-
-        let q' = case q of
-                    NameUnqual          -> "NameUnqual"
-                    NameQual mn         -> "mn"
-                    NameNotInScope1     -> "NameNotInScope1"
-                    NameNotInScope2     -> "NameNotInScope2"
-
-        GhcMonad.liftIO $ putStrLn $ "qqqqqq: " ++ show q'
-        -}
-        ------------------------------------------------------
+        return $ Right [url]
 
 
+
+
+
+{-
         let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
         GhcMonad.liftIO $ putStrLn $ "matchingAsImport: " ++ show matchingAsImport
 
@@ -1256,6 +1253,8 @@ rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellM
                         then return $ Left $ "No matches found."
                         else return $ Right yyy'''
                 else return $ Right final3
+-}
+
 
 -- | Top level function; use this one from src/Main.hs.
 haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
