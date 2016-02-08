@@ -30,7 +30,6 @@ module Language.Haskell.GhcImportedFrom (
    , getTextualImports
    , getSummary
    , toHaskellModule
-   , lookupSymbol
    , symbolImportedFrom
    , postfixMatch
    , moduleOfQualifiedName
@@ -64,7 +63,6 @@ import Data.List
 import Data.Maybe
 import Data.Typeable()
 import Desugar()
-import DynFlags
 import FastString
 import GHC
 import GHC.Paths (libdir)
@@ -85,7 +83,6 @@ import HsTypes
 import Type
 import HsPat
 
-import qualified DynFlags()
 import qualified GhcMonad
 import qualified MonadUtils()
 import qualified Packages
@@ -115,6 +112,8 @@ import Data.Functor.Identity
 
 import Debug.Trace
 
+import qualified DynFlags()
+
 #if __GLASGOW_HASKELL__ >= 708
 import DynFlags ( unsafeGlobalDynFlags )
 tdflags = unsafeGlobalDynFlags
@@ -127,15 +126,18 @@ trace' :: Show x => String -> x -> b -> b
 trace' m x = trace (m ++ ">>> " ++ show x)
 
 trace'' :: Outputable x => String -> x -> b -> b
-trace'' m x = trace (m ++ ">>> " ++ (showSDoc tdflags (ppr x)))
+trace'' m x = trace (m ++ ">>> " ++ showSDoc tdflags (ppr x))
 
 type GHCOption = String
 
 getGhcOptionsViaCabalRepl :: IO (Maybe [String])
 getGhcOptionsViaCabalRepl = do
-    putStrLn $ "getGhcOptionsViaCabalRepl..."
+    putStrLn "getGhcOptionsViaCabalRepl..."
 
-    (Just _, Just hout, Just _, _) <- createProcess (proc "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe }
+    (Just _, Just hout, Just _, _) <- createProcess (proc "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in = CreatePipe
+                                                                                                                        , std_out = CreatePipe
+                                                                                                                        , std_err = CreatePipe
+                                                                                                                        }
 
     ineof <- hIsEOF hout
 
@@ -175,8 +177,8 @@ parseFullHaskellModuleName = do
     return $ intercalate "." (h:rest)
 
 parseHelper :: String -> Bool
-parseHelper s = case (TP.parse (parseFullHaskellModuleName <* TP.eof) "" s) of Right _ -> False
-                                                                               Left _  -> True
+parseHelper s = case TP.parse (parseFullHaskellModuleName <* TP.eof) "" s of Right _ -> False
+                                                                             Left _  -> True
 
 parsePackageAndQualName = TP.choice [TP.try parsePackageAndQualNameWithHash, parsePackageAndQualNameNoHash]
 
@@ -192,7 +194,7 @@ parsePackageAndQualNameNoHash = do
   where
 
     parsePackageName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-    parsePackageName = TP.anyChar `TP.manyTill` (TP.char ':')
+    parsePackageName = TP.anyChar `TP.manyTill` TP.char ':'
 
     parsePackageFinalQualName :: TP.ParsecT String u Data.Functor.Identity.Identity String
     parsePackageFinalQualName = TP.many1 TP.anyChar
@@ -210,10 +212,10 @@ parsePackageAndQualNameWithHash = do
   where
 
     parsePackageName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-    parsePackageName = TP.anyChar `TP.manyTill` (TP.char '@')
+    parsePackageName = TP.anyChar `TP.manyTill` TP.char '@'
 
     parsePackageHash :: TP.ParsecT String u Data.Functor.Identity.Identity String
-    parsePackageHash = TP.anyChar `TP.manyTill` (TP.char ':')
+    parsePackageHash = TP.anyChar `TP.manyTill` TP.char ':'
 
     parsePackageFinalQualName :: TP.ParsecT String u Data.Functor.Identity.Identity String
     parsePackageFinalQualName = TP.many1 TP.anyChar
@@ -301,28 +303,28 @@ getTextualImports ghcopts targetFile targetModuleName = do
 -- return value are @ghcOpts1@ and @ghcOpts2@; see 'setDynamicFlags'.
 getSummary :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([GHCOption], ModSummary)
 getSummary ghcopts targetFile targetModuleName = do
-            GhcMonad.liftIO $ putStrLn $ "getSummary, setting dynamic flags..."
+            GhcMonad.liftIO $ putStrLn "getSummary, setting dynamic flags..."
             (allGhcOpts, _) <- getSessionDynFlags >>= setDynamicFlags ghcopts
 
             GhcMonad.liftIO $ putStrLn $ "getSummary, allGhcOpts: " ++ show allGhcOpts
 
             -- Load the target file (e.g. "Muddle.hs").
-            GhcMonad.liftIO $ putStrLn $ "getSummary, loading the target file..."
+            GhcMonad.liftIO $ putStrLn "getSummary, loading the target file..."
             target <- guessTarget targetFile Nothing
             setTargets [target]
 
             _ <- load LoadAllTargets
 
             -- Set the context by loading the module, e.g. "Muddle" which is in "Muddle.hs".
-            GhcMonad.liftIO $ putStrLn $ "getSummary, setting the context..."
+            GhcMonad.liftIO $ putStrLn "getSummary, setting the context..."
 
-            (setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName])
+            setContext [(IIDecl . simpleImportDecl . mkModuleName) targetModuleName]
                    `gcatch` (\(e  :: SourceError)   -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a SourceError, trying to continue anyway..." ++ show e))
                    `gcatch` (\(g  :: GhcApiError)   -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g))
                    `gcatch` (\(se :: SomeException) -> GhcMonad.liftIO (putStrLn $ "getSummary: setContext failed with a SomeException, trying to continue anyway..." ++ show se))
 
             -- Extract the module summary.
-            GhcMonad.liftIO $ putStrLn $ "getSummary, extracting the module summary..."
+            GhcMonad.liftIO $ putStrLn "getSummary, extracting the module summary..."
             modSum <- getModSummary (mkModuleName targetModuleName)
 
             -- graph <- GHC.depanal [] False
@@ -390,7 +392,7 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
             where names = GHC.ieNames $ SrcLoc.unLoc loc
 
           grabNames' :: GHC.Located [GHC.LIE GHC.RdrName] -> [String]
-          grabNames' loc = map (\n -> showSDoc tdflags (ppr n)) names
+          grabNames' loc = map (showSDoc tdflags . ppr) names
             where names :: [RdrName]
                   names = map (ieName . SrcLoc.unLoc) $ SrcLoc.unLoc loc
                   -- FIXME We are throwing away location info by using unLoc each time?
@@ -414,66 +416,6 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           parseSpecifically :: Maybe (Bool, Located [LIE RdrName]) -> [String]
           parseSpecifically (Just (False, h)) = grabNames' h
           parseSpecifically _                 = []
-
--- |Find all matches for a symbol in a source file. The last parameter is a list of
--- imports.
---
--- Example:
---
--- >>> x <- lookupSymbol "tests/data/data/Hiding.hs" "Hiding" "head" ["Prelude", "Safe", "System.Environment", "Data.List"]
--- *GhcImportedFrom> putStrLn . (showSDoc tdflags) . ppr $ x
--- [(GHC.List.head,
---   [GHC.List.head
---      imported from `Data.List' at tests/data/data/Hiding.hs:5:1-29
---      (and originally defined in `base:GHC.List')])]
-
-lookupSymbol :: GhcOptions -> String -> String -> String -> [String] -> Ghc [(Name, [GlobalRdrElt])]
-lookupSymbol ghcopts targetFile targetModuleName qualifiedSymbol importList = do
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: " ++ show (ghcopts, targetFile, targetModuleName, qualifiedSymbol, importList)
-
-        -- Bring in the target module and its imports.
-        (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
-           `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a SourceError, trying to continue anyway..." ++ show s
-                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
-           `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g
-                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
-           `gcatch` (\(se :: SomeException)  -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: setContext failed with a SomeException, trying to continue anyway..." ++ show se
-                                                   setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
-
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: continuing1..."
-
-        -- Get the module summary, then parse it, type check it, and desugar it.
-        modSummary <- getModSummary $ mkModuleName targetModuleName :: Ghc ModSummary
-        p <- parseModule modSummary   :: Ghc ParsedModule
-        t <- typecheckModule p        :: Ghc TypecheckedModule
-        d <- desugarModule t          :: Ghc DesugaredModule
-
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: continuing2..."
-
-        -- The "guts" has the global reader environment, which we need.
-        let guts = coreModule d            :: ModGuts
-            gre = HscTypes.mg_rdr_env guts :: GlobalRdrEnv
-
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: continuing3..."
-
-        -- parseName expects an unambiguous symbol otherwise it causes a
-        -- GHC panic. A fully qualified name should suffice. If this step
-        -- fails we return an empty list.
-        names <- (parseName qualifiedSymbol)
-           `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: parseName failed with a SourceError, trying to continue anyway..." ++ show s
-                                                   return [])
-           `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: parseName failed with a GhcApiError, trying to continue anyway..." ++ show g
-                                                   return [])
-           `gcatch` (\(se :: SomeException)  -> do GhcMonad.liftIO $ putStrLn $ "lookupSymbol: parseName failed with a SomeException, trying to continue anyway..." ++ show se
-                                                   return [])
-
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: continuing4..."
-        let occNames        = map nameOccName names                 :: [OccName]
-            occNamesLookups = map (lookupGlobalRdrEnv gre) occNames :: [[GlobalRdrElt]]
-
-        GhcMonad.liftIO $ putStrLn $ "lookupSymbol::: continuing5..."
-
-        return $ zip names occNamesLookups
 
 -- | List of possible modules which have resulted in
 -- the name being in the current scope. Using a
@@ -532,7 +474,7 @@ moduleOfQualifiedName qn = if null bits
 
 qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
 qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
-        (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
+        setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
            `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g
@@ -563,7 +505,7 @@ qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
 -- call to try to find the package name.
 qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> String -> [String] -> Ghc [String]
 qualifiedName' ghcopts targetFile targetModuleName lineNr colNr symbol importList = do
-        (setContext $ map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
+        setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
            `gcatch` (\(g  :: GhcApiError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a GhcApiError, trying to continue anyway..." ++ show g
@@ -660,6 +602,7 @@ hcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
                       putStrLn $ "hcPkgFindModule stderr: " ++ show err
 
                       return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+
 
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
@@ -808,7 +751,7 @@ findHaddockModule :: QualifiedName -> [HaskellModule] -> [String] -> GhcPkgOptio
                   -> [Either TP.ParseError (String, String)]
                   -> (Name, [GlobalRdrElt])
                   -> IO [(Maybe String, Maybe String, Maybe String, Maybe String)]
-findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts parsedPackagesAndQualNames (name, lookUp) = do
+findHaddockModule symbol'' smatches allGhcOpts ghcpkgOpts parsedPackagesAndQualNames (name, lookUp) =
  -- FIXME this is messy
  if isJust (moduleOfQualifiedName symbol'')
   then do
@@ -898,49 +841,6 @@ isInHiddenPackage mName =
         `gcatch` (\(_  :: SourceError) -> do GhcMonad.liftIO $ putStrLn $ "isInHiddenPackage: module " ++ mName ++ " is in a hidden package."
                                              return True)
 
-
-finalCase :: [String] -> String -> String -> [Char] -> [[Char]] -> Ghc [String]
-finalCase ghcOpts0 targetFile targetModule symbol haskellModuleNames' = do
-    blah <- forM haskellModuleNames' $ \hm -> do fff <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule (hm ++ "." ++ symbol) haskellModuleNames'
-                                                 if (length fff) > 0
-                                                    then do GhcMonad.liftIO $ putStrLn $ "finalCase: " ++ hm
-                                                            return [hm]
-                                                    else return []
-    return $ concat blah
-
-actualFinalCase allGhcOpts ghcpkgOptions targetFile targetModule symbol haskellModuleNames' parsedPackagesAndQualNames = do
-    -- This is getting ridiculous...
-    GhcMonad.liftIO $ putStrLn "last bits 1..."
-    zzz <- finalCase allGhcOpts targetFile targetModule symbol haskellModuleNames'
-    GhcMonad.liftIO $ putStrLn "last bits 2..."
-
-    let alreadyFoundPackageName = getSinglePackageName parsedPackagesAndQualNames
-
-    yyy <- forM zzz $ \r -> do p <- GhcMonad.liftIO $ ghcPkgFindModule alreadyFoundPackageName allGhcOpts ghcpkgOptions r
-                               GhcMonad.liftIO $ print $ "forM_ last bits: " ++ show p
-                               case p of Nothing  -> return []
-                                         (Just _) -> return [(r, fromJust p)]
-
-    let yyy' = concat yyy
-
-    GhcMonad.liftIO $ putStrLn "last bits 3..."
-    -- FIXME why don't we have the full ghc options right now? More than just the user-supplied ones?
-    yyy'' <- forM yyy' $ \(mname, pname) -> do haddock <- GhcMonad.liftIO $ ghcPkgHaddockUrl allGhcOpts (GhcPkgOptions allGhcOpts) pname
-                                               GhcMonad.liftIO $ print ("haddock", haddock)
-                                               if isJust haddock
-                                                     then do GhcMonad.liftIO $ putStrLn $ "last bits 3 inner loop: " ++ show haddock
-                                                             url <- GhcMonad.liftIO $ matchToUrl (Just mname, haddock, Just mname, Just $ moduleNameToHtmlFile mname)
-                                                             return $ Just url
-                                                     else return Nothing
-
-    GhcMonad.liftIO $ putStrLn $ "yyy'': " ++ show yyy''
-
-    GhcMonad.liftIO $ putStrLn "last bits 4..."
-    let yyy''' = catMaybes yyy''
-    GhcMonad.liftIO $ print $ "yyy''': " ++ (show yyy''')
-
-    return yyy'''
-
 -- Copied from ghc-mod-5.5.0.0
 findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
 findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
@@ -974,7 +874,7 @@ data ModuleExports = ModuleExports
     deriving Show
 
 pprModuleExports :: ModuleExports -> String
-pprModuleExports me = mName me ++ "\n" ++ (show $ mInfo me) ++ "\n" ++ intercalate " " (map show $ qualifiedExports me)
+pprModuleExports me = mName me ++ "\n" ++ show (mInfo me) ++ "\n" ++ unwords (map show $ qualifiedExports me)
 
 refineAs :: MySymbol -> [ModuleExports] -> [ModuleExports]
 
@@ -987,9 +887,8 @@ refineAs (MySymbolUserQualified userQualSym) exports = filter f exports
        where modas = modImportedAs $ mInfo export :: Maybe String
 
              -- e.g. "DL"
-             userQualAs = case moduleOfQualifiedName userQualSym of
-                            Nothing -> error $ "Expected a qualified name like 'DL.length' but got: " ++ userQualSym
-                            Just x  -> x
+             userQualAs = fromMaybe (error $ "Expected a qualified name like 'DL.length' but got: " ++ userQualSym)
+                                    (moduleOfQualifiedName userQualSym)
 
 -- User didn't qualify the symbol, so we have the full system qualified thing, so do nothing here.
 refineAs (MySymbolSysQualified _) exports = exports
@@ -997,7 +896,7 @@ refineAs (MySymbolSysQualified _) exports = exports
 refineRemoveHiding :: String -> [ModuleExports] -> [ModuleExports]
 refineRemoveHiding symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
   where
-    f symbol export = filter (\te -> not $ te `elem` hiding') thisExports
+    f symbol export = filter (`notElem` hiding') thisExports
        where hiding = modHiding $ mInfo export :: [String] -- Things that this module hides.
              hiding' = map (qualifyName thisExports) hiding  :: [String]    -- Qualified version of hiding.
              thisExports = qualifiedExports export         -- Things that this module exports.
@@ -1020,7 +919,7 @@ refineLeadingDot (MySymbolUserQualified userQualSym) exports = exports
 refineLeadingDot (MySymbolSysQualified symb)         exports = map (\e -> e { qualifiedExports = f leadingDot e }) exports
   where
     leadingDot :: String
-    leadingDot = '.' : (last $ separateBy '.' symb)
+    leadingDot = '.' : last (separateBy '.' symb)
 
     -- f symbol export = filter (symbol ==) thisExports
     f symbol export = filter (symbol `isSuffixOf`) thisExports
@@ -1041,9 +940,9 @@ getLastMatch exports = Safe.lastMay $ filter f exports
 -- (lots of output)
 -- SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/Data-Maybe.html
 
-guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String [String])
+guessHaddockUrl :: FilePath -> String -> Symbol -> Int -> Int -> GhcOptions -> GhcPkgOptions -> IO (Either String String)
 guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts0) ghcpkgOptions = do
-    cradle <- runGmOutT GhcModTypes.defaultOptions $ findCradleNoLog
+    cradle <- runGmOutT GhcModTypes.defaultOptions findCradleNoLog
     let currentDir = cradleCurrentDir cradle
         workDir = cradleRootDir cradle
     setCurrentDirectory workDir
@@ -1085,12 +984,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         let parsedPackagesAndQualNames :: [Either TP.ParseError (String, String)]
             parsedPackagesAndQualNames = map (TP.parse parsePackageAndQualName "") qnames_with_qualified_printing
 
-        GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ (show parsedPackagesAndQualNames)
+        GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ show parsedPackagesAndQualNames
 
         let symbolToUse :: String
-            symbolToUse = case Safe.headMay qnames_with_qualified_printing of
-                            Just s  -> s
-                            Nothing -> head qnames -- FIXME
+            symbolToUse = fromMaybe (head qnames) (Safe.headMay qnames_with_qualified_printing) -- FIXME dodgy use of 'head'
 
         GhcMonad.liftIO $ print ("symbolToUse", symbolToUse)
 
@@ -1110,7 +1007,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         -- Get all "as" imports.
         let asImports :: [String]
-            asImports = catMaybes $ map (modImportedAs . mInfo) upToNow
+            asImports = mapMaybe (modImportedAs . mInfo) upToNow
 
         -- Can a user do "import xxx as Foo.Bar"??? Check this.
 
@@ -1153,108 +1050,13 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
                                 Just [pkg]  -> head $ separateBy ':' pkg -- FIXME unsafe head
                                 _           -> error $ "No nice match in lastMatch for package: " ++ show lastMatch
 
-        haddock <- GhcMonad.liftIO $ (Safe.lastMay . catMaybes) <$> (mapM (\m -> maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOptions) (Just m)) (inits matchedPackage))
+        haddock <- GhcMonad.liftIO $ (Safe.lastMay . catMaybes) <$> mapM (maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOptions) . Just) (inits matchedPackage)
 
         GhcMonad.liftIO $ putStrLn $ "at the end now: " ++ show (matchedModule, moduleNameToHtmlFile matchedModule, matchedPackage, haddock)
 
         url <- GhcMonad.liftIO $ matchToUrl (Just matchedModule, haddock, Just matchedModule, Just $ moduleNameToHtmlFile matchedModule)
 
-        return $ Right [url]
-
-
-
-
-
-{-
-        let matchingAsImport = expandMatchingAsImport symbol (map toHaskellModule textualImports)
-        GhcMonad.liftIO $ putStrLn $ "matchingAsImport: " ++ show matchingAsImport
-
-        let postMatches = filter (postfixMatch symbol) qnames :: [String]
-            symbol' = fromMaybe (if null postMatches then symbol else minimumBy (compare `on` length) postMatches) matchingAsImport
-
-        GhcMonad.liftIO $ putStrLn $ "postMatches:  " ++ show postMatches
-        GhcMonad.liftIO $ putStrLn $ "symbol': " ++ symbol'
-
-        let maybeExtraModule = moduleOfQualifiedName symbol'
-
-        -- The module maybeExtraModule might be hidden. Check this.
-        extraIsHidden <- case maybeExtraModule of Just x  -> isInHiddenPackage x
-                                                  Nothing -> return False
-        GhcMonad.liftIO $ putStrLn $ "extraIsHidden: " ++ show extraIsHidden
-
-        let maybeExtraModule' = if extraIsHidden
-                                    then []
-                                    else if isJust maybeExtraModule
-                                        then [fromJust maybeExtraModule]
-                                        else []
-
-        let haskellModuleNames' = if symbol == symbol' then haskellModuleNames else haskellModuleNames ++ maybeExtraModule'
-
-        GhcMonad.liftIO $ putStrLn $ "maybeExtraModule: " ++ show maybeExtraModule
-        GhcMonad.liftIO $ putStrLn $ "maybeExtraModule': " ++ show maybeExtraModule'
-        GhcMonad.liftIO $ putStrLn $ "haskellModuleNames': " ++ show haskellModuleNames'
-
-        let smatches = specificallyMatches symbol (map toHaskellModule textualImports)
-        GhcMonad.liftIO $ putStrLn $ "smatches: " ++ show smatches
-
-        let symbol'' = if null smatches
-                            then symbol'
-                            else modName (head smatches) ++ "." ++ symbol
-
-        -- Sometimes our attempt to resolve symbol to symbol'' fails, e.g. in a Yesod 1.4 project
-        -- I had "Database.Persist.Sql.createPoolConfig" which resolved to "Database.Persist.Class.PersistConfig.createPoolConfig".
-        -- So here we try with the original symbol provided by the user (which might have been a fully qualified name) and then
-        -- our attempt at resolving it. So many corner cases :(
-        r1 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol   parsedPackagesAndQualNames
-        r2 <- rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames
-
-        GhcMonad.liftIO $ print ("r1, r2", r1, r2)
-
-        -- If we got a single good package name based on the fully really qualified
-        -- symbol name, then use that to filter the final final final final results. Phew.
-        let filterByPackageName :: [String] -> [String]
-            filterByPackageName = \res -> case parsedPackagesAndQualNames of
-                                            [Right (packName, _)]   -> filter (\x -> packName `isInfixOf` x) res
-                                            _                       -> res
-
-        return $ case (r1, r2) of
-                    (Right r1', _)      -> Right $ filterByPackageName r1'
-                    (Left _, Right r2') -> Right $ filterByPackageName r2'
-                    (Left l1, _)        -> Left l1
-                    (_, Left l2)        -> Left l2
-
-rest ghcOpts0 ghcpkgOptions allGhcOpts targetFile targetModule smatches haskellModuleNames' haskellModules symbol symbol'' parsedPackagesAndQualNames = do
-
-    GhcMonad.liftIO $ putStrLn $ "symbol'': " ++ symbol''
-
-    let allJust (a, b, c, d) = isJust a && isJust b && isJust c && isJust d
-
-    -- Then this does a runGhc as well.
-    final1 <- lookupSymbol (GhcOptions ghcOpts0) targetFile targetModule symbol'' haskellModuleNames'
-
-    final1' <- GhcMonad.liftIO $ concatMapM (findHaddockModule symbol'' smatches allGhcOpts ghcpkgOptions parsedPackagesAndQualNames) final1
-    GhcMonad.liftIO $ putStrLn $ "final1': " ++ show final1'
-
-    -- Remove any modules that have this name hidden.
-    -- e.g. import Data.List hiding (map)
-    let final1'' = filter (\(a,_,_,_) -> case a of Just a' -> not $ any (isHidden symbol a') haskellModules
-                                                   Nothing -> False) final1'
-    GhcMonad.liftIO $ putStrLn $ "final1'': " ++ show final1''
-    GhcMonad.liftIO $ putStrLn $ show (symbol, haskellModules)
-
-    let final2 = filter allJust final1''
-    final3 <- GhcMonad.liftIO $ mapM matchToUrl final2
-
-    GhcMonad.liftIO $ putStrLn "last bits 5..."
-    if null final3
-        then do yyy''' <- actualFinalCase ghcOpts0 ghcpkgOptions targetFile targetModule symbol haskellModuleNames' parsedPackagesAndQualNames
-                GhcMonad.liftIO $ print ("actualFinalCase, yyy'''", yyy''')
-                if null yyy'''
-                        then return $ Left $ "No matches found."
-                        else return $ Right yyy'''
-                else return $ Right final3
--}
-
+        return $ Right url
 
 -- | Top level function; use this one from src/Main.hs.
 haddockUrl :: Options -> FilePath -> String -> String -> Int -> Int -> IO String
@@ -1266,8 +1068,5 @@ haddockUrl opt file modstr symbol lineNr colNr = do
     res <- guessHaddockUrl file modstr symbol lineNr colNr ghcopts ghcpkgopts
     print ("res", show res)
 
-    case res of Right x  -> return $ (if length x > 1 then "WARNING: Multiple matches! Showing them all.\n" else "")
-                                        ++ (concat $ map (\z -> "SUCCESS: " ++ z ++ "\n") (reverse x)) -- Why reverse? To show the first one last, which the vim plugin will get.
-                                                                                                       -- This is flaky but will make it behave as earlier versions did, which used
-                                                                                                       -- Safe.headMay to get the first result.
+    case res of Right x  -> return $ "SUCCESS: " ++ x ++ "\n"
                 Left err -> return $ "FAIL: " ++ show err ++ "\n"
