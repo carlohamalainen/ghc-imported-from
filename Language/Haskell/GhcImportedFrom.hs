@@ -574,8 +574,8 @@ _ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
                       output <- readRestOfHandle hout
                       err    <- readRestOfHandle herr
 
-                      putStrLn $ "ghcPkgFindModule stdout: " ++ show output
-                      putStrLn $ "ghcPkgFindModule stderr: " ++ show err
+                      putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
+                      putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
 
                       return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
@@ -698,14 +698,22 @@ filterMatchingQualifiedImport symbol hmodules =
 findCradleNoLog  :: forall m. (IOish m, GmOut m) => m Cradle
 findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
 
-getModuleExports :: HaskellModule -> Ghc [String]
-getModuleExports m = do
+getModuleExports :: GhcOptions
+                 -> GhcPkgOptions
+                 -> HaskellModule
+                 -> Ghc ([String], String)
+getModuleExports (GhcOptions ghcOpts) ghcPkgOpts m = do
     theModule <- findModule (mkModuleName $ modName m) Nothing
     minfo     <- getModuleInfo theModule
 
+    -- FIXME pattern match, deal with directly.
+    Just p <- GhcMonad.liftIO $ ghcPkgFindModule Nothing ghcOpts ghcPkgOpts (modName m)
+
     case minfo of
         Nothing     -> error $ "Could not get module info for: " ++ show m
-        Just minfo' -> return $ map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo'
+        Just minfo' -> return $ ( map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo'
+                                , p
+                                )
 
 type UnqualifiedName    = String    -- ^ e.g. "Just"
 type FullyQualifiedName = String    -- ^ e.g. e.g. "base-4.8.2.0:Data.Foldable.length"
@@ -717,6 +725,7 @@ data MySymbol = MySymbolSysQualified  String  -- ^ e.g. "base-4.8.2.0:Data.Folda
 
 data ModuleExports = ModuleExports
     { mName            :: StrModuleName            -- ^ e.g. "Data.List"
+    , mPackageName     :: String                   -- ^ e.g. "snap-0.14.0.6"
     , mInfo            :: HaskellModule            -- ^ Our parse of the module import, with info like "hiding (map)".
     , qualifiedExports :: [FullyQualifiedName]     -- ^ e.g. [ "base-4.8.2.0:GHC.Base.++"
                                                         --        , "base-4.8.2.0:GHC.List.filter"
@@ -847,14 +856,14 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         -- Try to use the qnames_with_qualified_printing case, which has something like "base-4.8.2.0:GHC.Base.map",
         -- which will be more accurate to filter on.
 
+        exports <- mapM (getModuleExports (GhcOptions ghcOpts0) ghcpkgOptions) haskellModules0
 
-        exports <- mapM getModuleExports haskellModules0
-        -- let upToNow = (qnames, parsedPackagesAndQualNames, zip haskellModuleNames0 exports)
-
-        let upToNow = map (\(m, e) -> ModuleExports { mName             = modName m
-                                                    , mInfo             = m
-                                                    , qualifiedExports  = e
-                                                    }) (zip haskellModules0 exports)
+        let upToNow = map (\(m, (e, p)) -> ModuleExports
+                                                { mName             = modName m
+                                                , mPackageName      = p
+                                                , mInfo             = m
+                                                , qualifiedExports  = e
+                                                }) (zip haskellModules0 exports)
 
         GhcMonad.liftIO $ forM_ upToNow $ \x -> putStrLn $ pprModuleExports x
 
@@ -898,14 +907,14 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
                                 Just mod    -> mod
                                 _           -> error $ "No nice match in lastMatch for module: " ++ show lastMatch
 
-        let matchedPackage :: String
-            matchedPackage = case qualifiedExports <$> lastMatch of
-                                Just [pkg]  -> head $ separateBy ':' pkg -- FIXME unsafe head
-                                _           -> error $ "No nice match in lastMatch for package: " ++ show lastMatch
+        let matchedPackageName :: String
+            matchedPackageName = case mPackageName <$> lastMatch of
+                                    Just p -> p
+                                    _      -> error $ "No nice match in lastMatch for package name: " ++ show lastMatch
 
-        haddock <- GhcMonad.liftIO $ (Safe.lastMay . catMaybes) <$> mapM (maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOptions) . Just) (inits matchedPackage)
+        haddock <- GhcMonad.liftIO $ (maybe (return Nothing) (ghcPkgHaddockUrl allGhcOpts ghcpkgOptions) . Just) matchedPackageName
 
-        GhcMonad.liftIO $ putStrLn $ "at the end now: " ++ show (matchedModule, moduleNameToHtmlFile matchedModule, matchedPackage, haddock)
+        GhcMonad.liftIO $ putStrLn $ "at the end now: " ++ show (matchedModule, moduleNameToHtmlFile matchedModule, matchedPackageName, haddock)
 
         url <- GhcMonad.liftIO $ matchToUrl (Just matchedModule, haddock, Just matchedModule, Just $ moduleNameToHtmlFile matchedModule)
 
