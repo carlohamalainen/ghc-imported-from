@@ -701,19 +701,17 @@ findCradleNoLog = fst <$> (runJournalT findCradle :: m (Cradle, GhcModLog))
 getModuleExports :: GhcOptions
                  -> GhcPkgOptions
                  -> HaskellModule
-                 -> Ghc ([String], String)
+                 -> Ghc (Maybe ([String], String))
 getModuleExports (GhcOptions ghcOpts) ghcPkgOpts m = do
-    theModule <- findModule (mkModuleName $ modName m) Nothing
-    minfo     <- getModuleInfo theModule
+    minfo     <- ((findModule (mkModuleName $ modName m) Nothing) >>= getModuleInfo)
+                   `gcatch` (\(e  :: SourceError)   -> return Nothing)
 
-    -- FIXME pattern match, deal with directly.
-    Just p <- GhcMonad.liftIO $ ghcPkgFindModule Nothing ghcOpts ghcPkgOpts (modName m)
+    p <- GhcMonad.liftIO $ ghcPkgFindModule Nothing ghcOpts ghcPkgOpts (modName m)
 
-    case minfo of
-        Nothing     -> error $ "Could not get module info for: " ++ show m
-        Just minfo' -> return $ ( map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo'
-                                , p
-                                )
+    case (minfo, p) of
+        (Nothing, _)            -> return Nothing
+        (_, Nothing)            -> return Nothing
+        (Just minfo', Just p')  -> return $ Just (map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo', p')
 
 type UnqualifiedName    = String    -- ^ e.g. "Just"
 type FullyQualifiedName = String    -- ^ e.g. e.g. "base-4.8.2.0:Data.Foldable.length"
@@ -853,17 +851,45 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         GhcMonad.liftIO $ print ("symbolToUse", symbolToUse)
 
+        -- Possible extra modules...
+        let extraModules :: [HaskellModule]
+            extraModules = case Safe.headMay parsedPackagesAndQualNames of
+                            Just (Right (_, x)) -> case moduleOfQualifiedName x of Just x' -> [ HaskellModule { modName         = x'
+                                                                                                              , modQualifier    = Nothing
+                                                                                                              , modIsImplicit   = False
+                                                                                                              , modHiding       = []
+                                                                                                              , modImportedAs   = Nothing
+                                                                                                              , modSpecifically = []
+                                                                                                              }
+                                                                                              ]
+                                                                                   Nothing -> []
+                            _                   -> []
+
+        GhcMonad.liftIO $ print extraModules
+
         -- Try to use the qnames_with_qualified_printing case, which has something like "base-4.8.2.0:GHC.Base.map",
         -- which will be more accurate to filter on.
 
-        exports <- mapM (getModuleExports (GhcOptions ghcOpts0) ghcpkgOptions) haskellModules0
+        exports <- mapM (getModuleExports (GhcOptions ghcOpts0) ghcpkgOptions) (haskellModules0 ++ extraModules)
 
-        let upToNow = map (\(m, (e, p)) -> ModuleExports
+        -- Sometimes the modules in extraModules might be hidden or weird ones like GHC.Base that we can't
+        -- load, so filter out the successfully loaded ones.
+        let successes :: [(HaskellModule, Maybe ([String], String))]
+            successes = filter (isJust . snd) (zip (haskellModules0 ++ extraModules) exports)
+
+            bubble :: (HaskellModule, Maybe ([FullyQualifiedName], String)) -> Maybe (HaskellModule, ([FullyQualifiedName], String))
+            bubble (h, Just x)  = Just (h, x)
+            bubble (_, Nothing) = Nothing
+
+            successes' :: [(HaskellModule, ([String], String))]
+            successes' = mapMaybe bubble successes
+
+            upToNow = map (\(m, (e, p)) -> ModuleExports
                                                 { mName             = modName m
                                                 , mPackageName      = p
                                                 , mInfo             = m
                                                 , qualifiedExports  = e
-                                                }) (zip haskellModules0 exports)
+                                                }) successes'
 
         GhcMonad.liftIO $ forM_ upToNow $ \x -> putStrLn $ pprModuleExports x
 
