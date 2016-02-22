@@ -41,6 +41,7 @@ library
                  , transformers
                  , parsec
                  , optparse-applicative
+                 , haddock-api
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else

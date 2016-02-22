@@ -55,6 +55,7 @@ import Control.Monad.Instances()
 import Control.Monad.Writer
 import Data.Either (rights)
 import Data.Function (on)
+import Data.Traversable
 import Data.List
 import Data.Maybe
 import Data.Typeable()
@@ -91,6 +92,8 @@ import Language.Haskell.GhcMod (
     , Cradle(..)
     )
 
+import qualified Data.Map as M
+
 import Language.Haskell.GhcMod.Monad ( runGmOutT )
 import qualified Language.Haskell.GhcMod.Types as GhcModTypes
 
@@ -105,6 +108,8 @@ import Control.Exception (SomeException)
 
 import qualified Text.Parsec as TP
 import Data.Functor.Identity
+
+import qualified Documentation.Haddock as Haddock
 
 import Debug.Trace
 
@@ -641,6 +646,97 @@ hcPkgHaddockUrl p = do
                 return $ Safe.lastMay $ words line
         else return Nothing
 
+
+
+
+
+
+
+
+
+
+
+
+
+ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+    hc <- hcPkgHaddockInterface p
+
+    case hc of
+        Just hc' -> return $ Just hc'
+        Nothing  -> _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+
+  where
+
+    _ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+    _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+        let opts = ["field", p, "haddock-interfaces"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
+        putStrLn $ "ghc-pkg "++ show opts
+
+        (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
+                                                                   , std_out = CreatePipe
+                                                                   , std_err = CreatePipe
+                                                                   }
+
+        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
+        return $ Safe.lastMay $ words line
+
+    -- | Call cabal sandbox hc-pkg to find the haddock Interfaces.
+    hcPkgHaddockInterface :: String -> IO (Maybe String)
+    hcPkgHaddockInterface p = do
+        let opts = ["sandbox", "hc-pkg", "field", p, "haddock-interfaces"]
+        putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-interfaces"
+
+        (_, Just hout, _, _) <- createProcess (proc "cabal" opts){ std_in = CreatePipe
+                                                                 , std_out = CreatePipe
+                                                                 , std_err = CreatePipe
+                                                                 }
+
+        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
+        print $ ("ZZZZZZZZZZZZZ", line)
+
+        return $ if "haddock-interfaces" `isInfixOf` line
+            then Safe.lastMay $ words line
+            else Nothing
+
+
+getVisibleExports :: [String] -> GhcPkgOptions -> String -> Ghc (Maybe (M.Map String [String]))
+getVisibleExports allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+    haddockInterfaceFile <- GhcMonad.liftIO $ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+    join <$> traverse getVisibleExports' haddockInterfaceFile
+
+  where
+
+    getVisibleExports' :: FilePath -> Ghc (Maybe (M.Map String [String]))
+    getVisibleExports' ifile = do
+        iface <- Haddock.readInterfaceFile Haddock.nameCacheFromGhc ifile
+
+        case iface of
+            Left err        -> error $ "Could not read interface file " ++ ifile ++ " due to error: " ++ err
+            Right iface'    -> do let m  = map (\ii -> (Haddock.instMod ii, Haddock.instVisibleExports ii)) $ Haddock.ifInstalledIfaces iface' :: [(Module, [Name])]
+                                      m' = map (\(mname, names) -> (showSDoc tdflags $ ppr mname, map (showSDoc tdflags . ppr) names)) m       :: [(String, [String])]
+                                  return $ Just $ M.fromList m'
+
+{-
+        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ map Haddock.instMod $ Haddock.ifInstalledIfaces x
+
+        let x' = (!!0) $ Haddock.ifInstalledIfaces x
+        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ Haddock.instMod x'
+        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ Haddock.instVisibleExports x'
+
+        let interfaces :: [Haddock.InstalledInterface]
+        interfaces = Haddock.ifInstalledIfaces x
+
+        -- modToVisibleExports :: [(Module, [Name])]
+        -- modToVisibleExports = map (\i -> (Haddock.instMod x, Haddock.instVisibleExports x)) interfaces
+-}
+
+
+
+
+
+
+
 -- | Convert a module name string, e.g. @Data.List@ to @Data-List.html@.
 moduleNameToHtmlFile :: String -> String
 moduleNameToHtmlFile m =  map f m ++ ".html"
@@ -785,6 +881,27 @@ refineLeadingDot (MySymbolSysQualified symb)         exports = map (\e -> e { qu
     f symbol export = filter (symbol `isSuffixOf`) thisExports
        where thisExports = qualifiedExports export         -- Things that this module exports.
 
+refineVisibleExports :: [String] -> GhcPkgOptions -> [ModuleExports] -> Ghc [ModuleExports]
+refineVisibleExports allGhcOpts ghcpkgOptions exports = mapM f exports
+  where
+    f :: ModuleExports -> Ghc ModuleExports
+    f mexports = do
+        let pname          = mPackageName     mexports -- e.g. "base-4.8.2.0"
+            thisModuleName = mName            mexports -- e.g. "Prelude"
+            qexports       = qualifiedExports mexports -- e.g. ["base-4.8.2.0:GHC.Base.Just", ...]
+        visibleExportsMap <- getVisibleExports allGhcOpts ghcpkgOptions pname
+
+        let thisModVisibleExports = fromMaybe
+                                        (error $ "Could not get visible exports of " ++ pname)
+                                        (join $ traverse (M.lookup thisModuleName) visibleExportsMap)
+
+        let qexports' = filter (hasPostfixMatch thisModVisibleExports) qexports
+        return $ mexports { qualifiedExports = qexports' }
+
+    -- hasPostfixMatch "base-4.8.2.0:GHC.Base.Just" ["Just", "True", ...] -> True
+    hasPostfixMatch :: [String] -> String -> Bool
+    hasPostfixMatch xs s = last (separateBy '.' s) `elem` xs
+
 -- | The last thing with a single export must be the match? Iffy.
 getLastMatch :: [ModuleExports] -> Maybe ModuleExports
 getLastMatch exports = Safe.lastMay $ filter f exports
@@ -923,7 +1040,11 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn "upToNow3"
         GhcMonad.liftIO $ forM_ upToNow3 $ \x -> putStrLn $ pprModuleExports x
 
-        let lastMatch = getLastMatch upToNow3
+        upToNow4 <- refineVisibleExports allGhcOpts ghcpkgOptions upToNow3
+        GhcMonad.liftIO $ putStrLn "upToNow4"
+        GhcMonad.liftIO $ forM_ upToNow4 $ \x -> putStrLn $ pprModuleExports x
+
+        let lastMatch = getLastMatch upToNow4
         GhcMonad.liftIO $ print $ "last match: " ++ show lastMatch
 
         -- "last match: Just (ModuleExports {mName = \"Control.Monad\", mInfo = HaskellModule {modName = \"Control.Monad\", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing, modSpecifically = [\"forM_\",\"liftM\",\"filterM\",\"when\",\"unless\"]}, qualifiedExports = [\"base-4.8.2.0:GHC.Base.when\"]})"
