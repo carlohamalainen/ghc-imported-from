@@ -80,6 +80,7 @@ executable ghc-imported-from
                , parsec
                , optparse-applicative
                , hspec
+               , haddock-api
 
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
@@ -114,6 +115,7 @@ Test-Suite spec
                       , parsec
                       , optparse-applicative
                       , hspec
+                      , haddock-api
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
   else

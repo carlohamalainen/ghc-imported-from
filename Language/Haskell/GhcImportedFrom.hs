@@ -37,7 +37,6 @@ module Language.Haskell.GhcImportedFrom (
    , ghcPkgFindModule
    , ghcPkgHaddockUrl
    , moduleNameToHtmlFile
-   , toHackageUrl
    , matchToUrl
    , guessHaddockUrl
    , haddockUrl
@@ -297,6 +296,9 @@ getTextualImports ghcopts targetFile targetModuleName = do
     (allGhcOpts, modSum) <- getSummary ghcopts targetFile targetModuleName
 
     GhcMonad.liftIO $ putStrLn $ "getTextualImports: allGhcOpts: " ++ show allGhcOpts
+
+    -- graph <- getModuleGraph
+    -- GhcMonad.liftIO $ error $ show $ map ms_hspp_file graph
 
     return (allGhcOpts, ms_textual_imps modSum)
 
@@ -712,28 +714,14 @@ getVisibleExports allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
         iface <- Haddock.readInterfaceFile Haddock.nameCacheFromGhc ifile
 
         case iface of
-            Left err        -> error $ "Could not read interface file " ++ ifile ++ " due to error: " ++ err
+            Left err        -> GhcMonad.liftIO $ do putStrLn $ "Failed to read the Haddock interface file: " ++ ifile
+                                                    putStrLn "You probably installed packages without using the '--enable-documentation' flag."
+                                                    putStrLn ""
+                                                    putStrLn "Try something like:\n\n\tcabal install --enable-documentation p"
+                                                    error $ "No haddock interfaces file, giving up."
             Right iface'    -> do let m  = map (\ii -> (Haddock.instMod ii, Haddock.instVisibleExports ii)) $ Haddock.ifInstalledIfaces iface' :: [(Module, [Name])]
                                       m' = map (\(mname, names) -> (showSDoc tdflags $ ppr mname, map (showSDoc tdflags . ppr) names)) m       :: [(String, [String])]
                                   return $ Just $ M.fromList m'
-
-{-
-        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ map Haddock.instMod $ Haddock.ifInstalledIfaces x
-
-        let x' = (!!0) $ Haddock.ifInstalledIfaces x
-        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ Haddock.instMod x'
-        GhcMonad.liftIO $ print $ showSDoc tdflags $ ppr $ Haddock.instVisibleExports x'
-
-        let interfaces :: [Haddock.InstalledInterface]
-        interfaces = Haddock.ifInstalledIfaces x
-
-        -- modToVisibleExports :: [(Module, [Name])]
-        -- modToVisibleExports = map (\i -> (Haddock.instMod x, Haddock.instVisibleExports x)) interfaces
--}
-
-
-
-
 
 
 
@@ -743,6 +731,10 @@ moduleNameToHtmlFile m =  map f m ++ ".html"
     where f :: Char -> Char
           f '.' = '-'
           f c   = c
+
+{-
+I don't want to use this any more. The refiner works so much better with
+the local haddock interfaces file...
 
 -- | Convert a file path to a Hackage HTML file to its equivalent on @https://hackage.haskell.org@.
 toHackageUrl :: FilePath -> String -> String -> String
@@ -784,6 +776,28 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
                  putStrLn $ "foundModule2: " ++ show foundModule'
                  putStrLn $ "calling toHackageUrl with params: " ++ show (f, foundModule', importedFrom')
                  return $ toHackageUrl f foundModule' importedFrom'
+-}
+
+-- | Convert our match to a URL of the form @file://@ so that we can open it in a web browser.
+matchToUrl :: (Maybe String, Maybe String, Maybe String, Maybe String) -> IO String
+matchToUrl (importedFrom, haddock, foundModule, base) = do
+    when (isNothing importedFrom)   $ error "importedFrom is Nothing :("
+    when (isNothing haddock)        $ error "haddock is Nothing :("
+    when (isNothing foundModule)    $ error "foundModule is Nothing :("
+    when (isNothing base)           $ error "base is Nothing :("
+
+    let importedFrom' = fromJust importedFrom
+        haddock'      = fromJust haddock
+        foundModule'  = fromJust foundModule
+        base'         = fromJust base
+
+        f = haddock' </> base'
+
+    e <- doesFileExist f
+
+    if e then return $ "file://" ++ f
+         else do putStrLn $ "Please reinstall packages using the flag '--enable-documentation' for 'cabal install.\n"
+                 error $ "Could not find " ++ f
 
 filterMatchingQualifiedImport :: String -> [HaskellModule] -> [HaskellModule]
 filterMatchingQualifiedImport symbol hmodules =
@@ -890,12 +904,16 @@ refineVisibleExports allGhcOpts ghcpkgOptions exports = mapM f exports
             thisModuleName = mName            mexports -- e.g. "Prelude"
             qexports       = qualifiedExports mexports -- e.g. ["base-4.8.2.0:GHC.Base.Just", ...]
         visibleExportsMap <- getVisibleExports allGhcOpts ghcpkgOptions pname
+        GhcMonad.liftIO $ print visibleExportsMap
 
         let thisModVisibleExports = fromMaybe
                                         (error $ "Could not get visible exports of " ++ pname)
                                         (join $ traverse (M.lookup thisModuleName) visibleExportsMap)
 
         let qexports' = filter (hasPostfixMatch thisModVisibleExports) qexports
+
+        GhcMonad.liftIO $ print (qexports, qexports')
+
         return $ mexports { qualifiedExports = qexports' }
 
     -- hasPostfixMatch "base-4.8.2.0:GHC.Base.Just" ["Just", "True", ...] -> True
@@ -1044,7 +1062,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn "upToNow4"
         GhcMonad.liftIO $ forM_ upToNow4 $ \x -> putStrLn $ pprModuleExports x
 
-        let lastMatch = getLastMatch upToNow4
+        let lastMatch3 = getLastMatch upToNow3
+            lastMatch4 = getLastMatch upToNow4
+            lastMatch  = Safe.headMay $ catMaybes [lastMatch4, lastMatch3]
+
         GhcMonad.liftIO $ print $ "last match: " ++ show lastMatch
 
         -- "last match: Just (ModuleExports {mName = \"Control.Monad\", mInfo = HaskellModule {modName = \"Control.Monad\", modQualifier = Nothing, modIsImplicit = False, modHiding = [], modImportedAs = Nothing, modSpecifically = [\"forM_\",\"liftM\",\"filterM\",\"when\",\"unless\"]}, qualifiedExports = [\"base-4.8.2.0:GHC.Base.when\"]})"
