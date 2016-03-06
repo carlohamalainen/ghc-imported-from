@@ -556,64 +556,77 @@ optsForGhcPkg ("-package-conf":pc:rest)      = ("--package-conf" ++ "=" ++ pc) :
 optsForGhcPkg ("-no-user-package-conf":rest) = "--no-user-package-conf"        : optsForGhcPkg rest
 optsForGhcPkg (_:rest) = optsForGhcPkg rest
 
-ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
-    sandboxResult <- hcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+    stackResult     <- stackGhcPkgFindModule m                                           :: IO (Maybe String)
+    sandboxResult   <- hcPkgFindModule   allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m :: IO (Maybe String)
+    ghcPkgResult    <- _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m :: IO (Maybe String)
 
-    case sandboxResult of
-        Nothing     -> _ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
-        s@(Just _)  -> return s
+    return $ foldl mplus Nothing [stackResult, sandboxResult, ghcPkgResult]
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
-_ghcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-_ghcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
-    case x of
-        Just x' -> return x -- we found it earlier - this is a hack
-        Nothing -> do let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
-                      putStrLn $ "ghc-pkg " ++ show opts
+_ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+_ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+    let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
+    putStrLn $ "ghc-pkg " ++ show opts
 
-                      (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
-                                                                                         , std_out = CreatePipe
-                                                                                         , std_err = CreatePipe
-                                                                                         }
+    (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
+                                                                       , std_out = CreatePipe
+                                                                       , std_err = CreatePipe
+                                                                       }
 
-                      output <- readRestOfHandle hout
-                      err    <- readRestOfHandle herr
+    output <- readRestOfHandle hout
+    err    <- readRestOfHandle herr
 
-                      putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
-                      putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
+    putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
+    putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
 
-                      return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 -- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
-hcPkgFindModule :: Maybe String -> [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-hcPkgFindModule x allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
-    case x of
-        Just x' -> return x -- we found it earlier - this is a hack
-        Nothing -> do let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
+hcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
+hcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+    let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
 
-                      (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
-                                                                                       , std_out = CreatePipe
-                                                                                       , std_err = CreatePipe
-                                                                                       }
+    (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
+                                                                     , std_out = CreatePipe
+                                                                     , std_err = CreatePipe
+                                                                     }
 
-                      output <- readRestOfHandle hout
-                      err    <- readRestOfHandle herr
+    output <- readRestOfHandle hout
+    err    <- readRestOfHandle herr
 
-                      putStrLn $ "hcPkgFindModule stdout: " ++ show output
-                      putStrLn $ "hcPkgFindModule stderr: " ++ show err
+    putStrLn $ "hcPkgFindModule stdout: " ++ show output
+    putStrLn $ "hcPkgFindModule stderr: " ++ show err
 
-                      return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+
+-- | Call @stack exec ghc-pkg@ to find the package the provides a module.
+stackGhcPkgFindModule :: String -> IO (Maybe String)
+stackGhcPkgFindModule m = do
+    do let opts = ["exec", "ghc-pkg", "find-module", m, "--", "--simple-output"]
+       (_, Just hout, Just herr, _) <- createProcess (proc "stack" opts){ std_in  = CreatePipe
+                                                                        , std_out = CreatePipe
+                                                                        , std_err = CreatePipe
+                                                                        }
+
+       output <- readRestOfHandle hout
+       err    <- readRestOfHandle herr
+
+       putStrLn $ "stackGhcPkgFindModule stdout: " ++ show output
+       putStrLn $ "stackGhcPkgFindModule stderr: " ++ show err
+
+       return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
-    hc <- hcPkgHaddockUrl p
+    stackHU     <- stackPkgHaddockUrl p
+    sandboxHU   <- sandboxPkgHaddockUrl p
+    ghcHU       <- _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
 
-    case hc of
-        Just hc' -> return $ Just hc'
-        Nothing  -> _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+    return $ foldl mplus Nothing [stackHU, sandboxHU, ghcHU]
 
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 _ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
@@ -630,12 +643,31 @@ _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
     return $ Safe.lastMay $ words line
 
 -- | Call cabal sandbox hc-pkg to find the haddock url.
-hcPkgHaddockUrl :: String -> IO (Maybe String)
-hcPkgHaddockUrl p = do
+sandboxPkgHaddockUrl :: String -> IO (Maybe String)
+sandboxPkgHaddockUrl p = do
     let opts = ["sandbox", "hc-pkg", "field", p, "haddock-html"]
     putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-html"
 
     (_, Just hout, _, _) <- createProcess (proc "cabal" opts){ std_in = CreatePipe
+                                                             , std_out = CreatePipe
+                                                             , std_err = CreatePipe
+                                                             }
+
+    line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
+    print ("line", line)
+
+    if "haddock-html:" `isInfixOf` line
+        then do print ("line2", Safe.lastMay $ words line)
+                return $ Safe.lastMay $ words line
+        else return Nothing
+
+-- | Call cabal stack to find the haddock url.
+stackPkgHaddockUrl :: String -> IO (Maybe String)
+stackPkgHaddockUrl p = do
+    let opts = ["exec", "ghc-pkg", "field", p, "haddock-html"]
+    putStrLn $ "stack exec hc-pkg field " ++ p ++ " haddock-html"
+
+    (_, Just hout, _, _) <- createProcess (proc "stack" opts){ std_in = CreatePipe
                                                              , std_out = CreatePipe
                                                              , std_err = CreatePipe
                                                              }
@@ -662,11 +694,13 @@ hcPkgHaddockUrl p = do
 
 ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
-    hc <- hcPkgHaddockInterface p
+    stackHI     <- stackGhcPkgHaddockInterface p
+    sandboxHI   <- cabalPkgHaddockInterface p
+    ghcHI       <- _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
 
-    case hc of
-        Just hc' -> return $ Just hc'
-        Nothing  -> _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+    -- FIXME These foldl's are slow; need a short-cut version so we don't run
+    -- all three commands if the first succeeds. Something in Control.Monad no doubt.
+    return $ foldl mplus Nothing [stackHI, sandboxHI, ghcHI]
 
   where
 
@@ -684,8 +718,8 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
         return $ Safe.lastMay $ words line
 
     -- | Call cabal sandbox hc-pkg to find the haddock Interfaces.
-    hcPkgHaddockInterface :: String -> IO (Maybe String)
-    hcPkgHaddockInterface p = do
+    cabalPkgHaddockInterface :: String -> IO (Maybe String)
+    cabalPkgHaddockInterface p = do
         let opts = ["sandbox", "hc-pkg", "field", p, "haddock-interfaces"]
         putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-interfaces"
 
@@ -696,6 +730,24 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
 
         line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
         print $ ("ZZZZZZZZZZZZZ", line)
+
+        return $ if "haddock-interfaces" `isInfixOf` line
+            then Safe.lastMay $ words line
+            else Nothing
+
+    -- | Call stack to find the haddock Interfaces.
+    stackGhcPkgHaddockInterface :: String -> IO (Maybe String)
+    stackGhcPkgHaddockInterface p = do
+        let opts = ["exec", "ghc-pkg", "field", p, "haddock-interfaces"]
+        putStrLn $ "stack exec ghc-pkg field " ++ p ++ " haddock-interfaces"
+
+        (_, Just hout, _, _) <- createProcess (proc "stack" opts){ std_in = CreatePipe
+                                                                 , std_out = CreatePipe
+                                                                 , std_err = CreatePipe
+                                                                 }
+
+        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
+        print $ ("UUUUUUUUUUUUU", line, opts)
 
         return $ if "haddock-interfaces" `isInfixOf` line
             then Safe.lastMay $ words line
@@ -816,7 +868,7 @@ getModuleExports (GhcOptions ghcOpts) ghcPkgOpts m = do
     minfo     <- ((findModule (mkModuleName $ modName m) Nothing) >>= getModuleInfo)
                    `gcatch` (\(e  :: SourceError)   -> return Nothing)
 
-    p <- GhcMonad.liftIO $ ghcPkgFindModule Nothing ghcOpts ghcPkgOpts (modName m)
+    p <- GhcMonad.liftIO $ ghcPkgFindModule ghcOpts ghcPkgOpts (modName m)
 
     case (minfo, p) of
         (Nothing, _)            -> return Nothing
