@@ -4,3 +4,4 @@ dist/
 *.swp
 codex.tags
 tmp/*
+.stack-work/*
