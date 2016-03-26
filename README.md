@@ -4,75 +4,41 @@ For a given Haskell source file, determine the path to the Haddock documentation
 
 Example: on the file [src/Main.hs](https://github.com/carlohamalainen/ghc-imported-from/blob/master/src/Main.hs),
 
-    ghc-imported-from src/Main.hs Main getArgs 69 13
+    ghc-imported-from src/Main.hs Main strOption 18 17
 
 says
 
-    SUCCESS: file:///home/carlo/opt/ghc-7.6.3_build/share/doc/ghc/html/libraries/base-4.6.0.1/System-Environment.html
+    SUCCESS: file:///home/carlo/.stack/snapshots/x86_64-linux/lts-5.8/7.10.3/doc/optparse-applicative-0.12.1.0/Options-Applicative-Builder.html
 
-since the usage of ```getArgs``` at line 160, column 13, is from the ```System.Environment``` module.
+since the usage of ```strOption``` at line 18, column 17, is from the ```Options.Applicative.Builder``` module.
 
-Difficulties arise because some symbols are exported from a certain
+Difficulties arise in resolving names because some symbols are exported from a certain
 package but defined in another, for example ```String``` is defined in
 ```GHC.Base``` but is exported from the standard prelude, the module
 ```Prelude```. There are other cases to deal with including qualified
 imports, selective imports, imports with hidden components, etc.
 
-Preference is given to any locally available Haddock documentation,
-and then to the generic url at hackage.org.
+## Using with Stack
 
-## Beware
+[Stack](http://docs.haskellstack.org/en/stable/README/) makes everything easier.
 
-You may have to run
-
-    cabal build
-
-or
-
-    cabal repl
-
-in a project directory to sort out some of the ```dist/build/autogen```
-files. At the moment ```ghc-imported-from``` has no functionality to
-do this boot process automatically. To run ```cabal repl``` you might need
-the latest Cabal from [https://github.com/haskell/cabal](https://github.com/haskell/cabal).
-
-If you see
-
-    <command line>: cannot satisfy -package hspec
-        (use -v for more information)
-
-then you may need the hspec and/or doctest packages:
-
-    cabal install hspec doctest
-
-Feedback and pull requests most welcome!
-
-## Install
-
-### ghc-imported-from
-
-Install into ```~/.cabal```:
+Build ghc-imported-from:
 
     git clone https://github.com/carlohamalainen/ghc-imported-from
     cd ghc-imported-from
-    cabal install
+    stack build
 
-Or, install into a sandbox:
+then add
 
-    git clone https://github.com/carlohamalainen/ghc-imported-from
-    cd ghc-imported-from
-    ./build_in_sandbox.sh
+    `pwd`/.stack-work/install/x86_64-linux/lts-5.8/7.10.3/bin
 
-Either way, ensure that ```ghc-imported-from``` and ```fake-ghc-for-ghc-imported-from``` are in the current PATH.
+or similar to your ```$PATH```.
 
 ### Tests
 
-Run the tests using cabal:
+Run the tests using Stack:
 
-    cabal test
-
-If the tests hang, check that your version of Cabal/cabal-install has this
-fix: https://github.com/haskell/cabal/issues/1810
+    stack test
 
 ### ghcimportedfrom-vim
 
