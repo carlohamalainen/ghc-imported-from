@@ -34,6 +34,13 @@ then add
 
 or similar to your ```$PATH```.
 
+Then in a project that you are working on:
+
+    cd my-project
+    stack build
+    stack haddock # Must do this!
+    ghc-imported-from some/file/Blah.hs Blah f 100 3
+
 ### Tests
 
 Run the tests using Stack:
