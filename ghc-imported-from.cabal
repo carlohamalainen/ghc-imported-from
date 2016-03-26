@@ -25,7 +25,7 @@ library
                      Language.Haskell.GhcImportedFrom.Types
 
     other-extensions:    CPP, Rank2Types
-    build-depends: base
+    build-depends: base >=4.0 && <5
                  , syb
                  , ghc
                  , ghc-paths
@@ -53,7 +53,7 @@ executable fake-ghc-for-ghc-imported-from
   main-is:          fake-ghc-for-ghc-imported-from.hs
   GHC-Options:      -Wall
   hs-source-dirs:   src
-  build-depends: base
+  build-depends: base >=4.0 && <5
                , process
   default-language:  Haskell2010
 
@@ -62,7 +62,7 @@ executable ghc-imported-from
   GHC-Options:         -Wall
   other-modules:        Paths_ghc_imported_from
   other-extensions:    CPP, Rank2Types
-  build-depends: base
+  build-depends: base >=4.0 && <5
                , syb
                , ghc
                , ghc-paths
@@ -98,7 +98,7 @@ Test-Suite spec
   Type:                 exitcode-stdio-1.0
   Other-Modules:        Dir
                         ImportedFromSpec
-  Build-Depends:        base
+  Build-Depends:        base >=4.0 && <5
                       , syb
                       , ghc
                       , ghc-paths
