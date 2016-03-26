@@ -1,3 +1,8 @@
+2016-03-26 v0.3.0.0
+
+* New heuristics for resolving symbols.
+* Compatability with Stack!
+
 2016-01-20 v0.2.1.1
 
 * Builds against ghc-mod-5.5.0.0.
