@@ -6,7 +6,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GhcImportedFrom
--- Copyright   :  Carlo Hamalainen 2013, 2014
+-- Copyright   :  Carlo Hamalainen 2013-2016
 -- License     :  BSD3
 --
 -- Maintainer  :  carlo@carlo-hamalainen.net
@@ -50,11 +50,6 @@ module Language.Haskell.GhcImportedFrom (
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Instances()
-import Control.Monad.Writer
-import Data.Either (rights)
-import Data.Function (on)
-import Data.Traversable
 import Data.List
 import Data.Maybe
 import Data.Typeable()
@@ -64,8 +59,6 @@ import GHC
 import GHC.Paths (libdir)
 import GHC.SYB.Utils()
 import HscTypes
-import Module
-import Name
 import Outputable
 import RdrName
 import System.Directory
@@ -74,10 +67,6 @@ import System.FilePath
 import System.IO
 import System.Process
 import TcRnTypes()
-import HsImpExp
-import HsTypes
-import Type
-import HsPat
 
 import qualified GhcMonad
 import qualified MonadUtils()
@@ -96,7 +85,7 @@ import qualified Data.Map as M
 import Language.Haskell.GhcMod.Monad ( runGmOutT )
 import qualified Language.Haskell.GhcMod.Types as GhcModTypes
 
-import Language.Haskell.GhcMod.Types       (IOish(..))
+import Language.Haskell.GhcMod.Types       (IOish)
 import Language.Haskell.GhcMod.Monad.Types (GhcModLog(..), GmOut(..))
 import Control.Monad.Trans.Journal (runJournalT)
 
@@ -110,23 +99,23 @@ import Data.Functor.Identity
 
 import qualified Documentation.Haddock as Haddock
 
-import Debug.Trace
-
 import qualified DynFlags()
 
 #if __GLASGOW_HASKELL__ >= 708
 import DynFlags ( unsafeGlobalDynFlags )
+tdflags :: DynFlags
 tdflags = unsafeGlobalDynFlags
 #else
 import DynFlags ( tracingDynFlags )
+tdflags :: DynFlags
 tdflags = tracingDynFlags
 #endif
 
-trace' :: Show x => String -> x -> b -> b
-trace' m x = trace (m ++ ">>> " ++ show x)
+-- trace' :: Show x => String -> x -> b -> b
+-- trace' m x = trace (m ++ ">>> " ++ show x)
 
-trace'' :: Outputable x => String -> x -> b -> b
-trace'' m x = trace (m ++ ">>> " ++ showSDoc tdflags (ppr x))
+-- trace'' :: Outputable x => String -> x -> b -> b
+-- trace'' m x = trace (m ++ ">>> " ++ showSDoc tdflags (ppr x))
 
 shortcut :: [IO (Maybe a)] -> IO (Maybe a)
 shortcut []     = return Nothing
@@ -259,6 +248,7 @@ parseHelper :: String -> Bool
 parseHelper s = case TP.parse (parseFullHaskellModuleName <* TP.eof) "" s of Right _ -> False
                                                                              Left _  -> True
 
+parsePackageAndQualName :: forall u. TP.ParsecT String u Identity (String, String)
 parsePackageAndQualName = TP.choice [TP.try parsePackageAndQualNameWithHash, parsePackageAndQualNameNoHash]
 
 -- Package with no hash (seems to be for internal packages?)
@@ -266,9 +256,9 @@ parsePackageAndQualName = TP.choice [TP.try parsePackageAndQualNameWithHash, par
 parsePackageAndQualNameNoHash :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
 parsePackageAndQualNameNoHash = do
     packageName <- parsePackageName
-    qualName    <- parsePackageFinalQualName
+    qName       <- parsePackageFinalQualName
 
-    return (packageName, qualName)
+    return (packageName, qName)
 
   where
 
@@ -284,9 +274,9 @@ parsePackageAndQualNameWithHash :: TP.ParsecT String u Data.Functor.Identity.Ide
 parsePackageAndQualNameWithHash = do
     packageName <- parsePackageName
     _           <- parsePackageHash
-    qualName    <- parsePackageFinalQualName
+    qName       <- parsePackageFinalQualName
 
-    return (packageName, qualName)
+    return (packageName, qName)
 
   where
 
@@ -469,9 +459,9 @@ toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedA
           importedAs = (showSDoc tdflags . ppr) <$> ideclAs idecl'
           specifically = (parseSpecifically . GHC.ideclHiding) idecl'
 
-          grabNames :: GHC.Located (GHC.IE GHC.RdrName) -> String
-          grabNames loc = showSDoc tdflags (ppr names)
-            where names = GHC.ieNames $ SrcLoc.unLoc loc
+          --grabNames :: GHC.Located (GHC.IE GHC.RdrName) -> String
+          --grabNames loc = showSDoc tdflags (ppr names)
+          --  where names = GHC.ieNames $ SrcLoc.unLoc loc
 
           grabNames' :: GHC.Located [GHC.LIE GHC.RdrName] -> [String]
           grabNames' loc = map (showSDoc tdflags . ppr) names
@@ -555,7 +545,7 @@ moduleOfQualifiedName qn = if null bits
 -- "Data.Map.Base.fromList"
 
 qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
-qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
+qualifiedName _ _ targetModuleName lineNr colNr importList = do
         setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
@@ -586,7 +576,7 @@ qualifiedName ghcopts targetFile targetModuleName lineNr colNr importList = do
 -- been done. If this works we can also remove 'ghcPkgFindModule' which uses a shell
 -- call to try to find the package name.
 qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> String -> [String] -> Ghc [String]
-qualifiedName' ghcopts targetFile targetModuleName lineNr colNr symbol importList = do
+qualifiedName' _ _ targetModuleName lineNr colNr symbol importList = do
         setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
@@ -664,7 +654,7 @@ _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
 
 -- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
 hcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-hcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
+hcPkgFindModule _ _ m = do
     let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
 
     (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
@@ -771,15 +761,15 @@ stackPkgHaddockUrl p = do
 
 ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
-    shortcut [ stackGhcPkgHaddockInterface p
-             , cabalPkgHaddockInterface p
-             , _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+    shortcut [ stackGhcPkgHaddockInterface
+             , cabalPkgHaddockInterface
+             , _ghcPkgHaddockInterface
              ]
 
   where
 
-    _ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-    _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
+    _ghcPkgHaddockInterface :: IO (Maybe String)
+    _ghcPkgHaddockInterface = do
         let opts = ["field", p, "haddock-interfaces"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
         putStrLn $ "ghc-pkg "++ show opts
 
@@ -792,8 +782,8 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
         return $ Safe.lastMay $ words line
 
     -- | Call cabal sandbox hc-pkg to find the haddock Interfaces.
-    cabalPkgHaddockInterface :: String -> IO (Maybe String)
-    cabalPkgHaddockInterface p = do
+    cabalPkgHaddockInterface :: IO (Maybe String)
+    cabalPkgHaddockInterface = do
         let opts = ["sandbox", "hc-pkg", "field", p, "haddock-interfaces"]
         putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-interfaces"
 
@@ -810,8 +800,8 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
             else Nothing
 
     -- | Call stack to find the haddock Interfaces.
-    stackGhcPkgHaddockInterface :: String -> IO (Maybe String)
-    stackGhcPkgHaddockInterface p = do
+    stackGhcPkgHaddockInterface :: IO (Maybe String)
+    stackGhcPkgHaddockInterface = do
         let opts = ["exec", "ghc-pkg", "field", p, "haddock-interfaces"]
         putStrLn $ "stack exec ghc-pkg field " ++ p ++ " haddock-interfaces"
 
@@ -840,7 +830,7 @@ getVisibleExports allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
         iface <- Haddock.readInterfaceFile Haddock.nameCacheFromGhc ifile
 
         case iface of
-            Left err        -> GhcMonad.liftIO $ do putStrLn $ "Failed to read the Haddock interface file: " ++ ifile
+            Left _          -> GhcMonad.liftIO $ do putStrLn $ "Failed to read the Haddock interface file: " ++ ifile
                                                     putStrLn "You probably installed packages without using the '--enable-documentation' flag."
                                                     putStrLn ""
                                                     putStrLn "Try something like:\n\n\tcabal install --enable-documentation p"
@@ -912,9 +902,9 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
     when (isNothing foundModule)    $ error "foundModule is Nothing :("
     when (isNothing base)           $ error "base is Nothing :("
 
-    let importedFrom' = fromJust importedFrom
+    let -- importedFrom' = fromJust importedFrom
         haddock'      = fromJust haddock
-        foundModule'  = fromJust foundModule
+        -- foundModule'  = fromJust foundModule
         base'         = fromJust base
 
         f = haddock' </> base'
@@ -938,18 +928,18 @@ getModuleExports :: GhcOptions
                  -> GhcPkgOptions
                  -> HaskellModule
                  -> Ghc (Maybe ([String], String))
-getModuleExports (GhcOptions ghcOpts) ghcPkgOpts m = do
+getModuleExports (GhcOptions gopts) ghcpkgOpts m = do
     minfo     <- ((findModule (mkModuleName $ modName m) Nothing) >>= getModuleInfo)
-                   `gcatch` (\(e  :: SourceError)   -> return Nothing)
+                   `gcatch` (\(_  :: SourceError)   -> return Nothing)
 
-    p <- GhcMonad.liftIO $ ghcPkgFindModule ghcOpts ghcPkgOpts (modName m)
+    p <- GhcMonad.liftIO $ ghcPkgFindModule gopts ghcpkgOpts (modName m)
 
     case (minfo, p) of
         (Nothing, _)            -> return Nothing
         (_, Nothing)            -> return Nothing
         (Just minfo', Just p')  -> return $ Just (map (showSDocForUser tdflags reallyAlwaysQualify . ppr) $ modInfoExports minfo', p')
 
-type UnqualifiedName    = String    -- ^ e.g. "Just"
+-- type UnqualifiedName    = String    -- ^ e.g. "Just"
 type FullyQualifiedName = String    -- ^ e.g. e.g. "base-4.8.2.0:Data.Foldable.length"
 type StrModuleName      = String    -- ^ e.g. "Data.List"
 
@@ -989,10 +979,10 @@ refineAs (MySymbolUserQualified userQualSym) exports = filter f exports
 -- User didn't qualify the symbol, so we have the full system qualified thing, so do nothing here.
 refineAs (MySymbolSysQualified _) exports = exports
 
-refineRemoveHiding :: String -> [ModuleExports] -> [ModuleExports]
-refineRemoveHiding symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
+refineRemoveHiding :: [ModuleExports] -> [ModuleExports]
+refineRemoveHiding exports = map (\e -> e { qualifiedExports = f e }) exports
   where
-    f symbol export = filter (`notElem` hiding') thisExports
+    f export = filter (`notElem` hiding') thisExports
        where hiding = modHiding $ mInfo export :: [String] -- Things that this module hides.
              hiding' = map (qualifyName thisExports) hiding  :: [String]    -- Qualified version of hiding.
              thisExports = qualifiedExports export         -- Things that this module exports.
@@ -1007,11 +997,11 @@ refineExportsIt :: String -> [ModuleExports] -> [ModuleExports]
 refineExportsIt symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
   where
     -- f symbol export = filter (symbol ==) thisExports
-    f symbol export = filter (postfixMatch symbol) thisExports
+    f sym export = filter (postfixMatch sym) thisExports
        where thisExports = qualifiedExports export         -- Things that this module exports.
 
 refineLeadingDot :: MySymbol -> [ModuleExports] -> [ModuleExports]
-refineLeadingDot (MySymbolUserQualified userQualSym) exports = exports
+refineLeadingDot (MySymbolUserQualified _)           exports = exports
 refineLeadingDot (MySymbolSysQualified symb)         exports = map (\e -> e { qualifiedExports = f leadingDot e }) exports
   where
     leadingDot :: String
@@ -1093,7 +1083,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         -- If symbol is something like DM.lookup, then restrict haskellModuleNames to the
         -- one that has modImportedAs == Just "DM".
         let filterThings = filterMatchingQualifiedImport symbol haskellModules0
-        let haskellModules = if null filterThings then haskellModules0 else filterThings
+        -- let haskellModules = if null filterThings then haskellModules0 else filterThings
         let haskellModuleNames = if null filterThings then map modName haskellModules0 else map modName filterThings
 
         qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
@@ -1172,7 +1162,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn "upToNow0"
         GhcMonad.liftIO $ forM_ upToNow0 $ \x -> putStrLn $ pprModuleExports x
 
-        let upToNow1 = refineRemoveHiding symbolToUse upToNow0
+        let upToNow1 = refineRemoveHiding upToNow0
         GhcMonad.liftIO $ putStrLn "upToNow1"
         GhcMonad.liftIO $ forM_ upToNow1 $ \x -> putStrLn $ pprModuleExports x
 
@@ -1198,7 +1188,7 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         let matchedModule :: String
             matchedModule = case mName <$> lastMatch of
-                                Just mod    -> mod
+                                Just modn   -> modn
                                 _           -> error $ "No nice match in lastMatch for module: " ++ show lastMatch
 
         let matchedPackageName :: String
