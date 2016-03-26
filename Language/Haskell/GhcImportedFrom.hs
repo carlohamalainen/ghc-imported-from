@@ -128,7 +128,86 @@ trace' m x = trace (m ++ ">>> " ++ show x)
 trace'' :: Outputable x => String -> x -> b -> b
 trace'' m x = trace (m ++ ">>> " ++ showSDoc tdflags (ppr x))
 
+shortcut :: [IO (Maybe a)] -> IO (Maybe a)
+shortcut []     = return Nothing
+shortcut (a:as) = do
+    a' <- a
+
+    case a' of
+        a''@(Just _)    -> return a''
+        Nothing         -> shortcut as
+
 type GHCOption = String
+
+getStackSnapshotPkgDb :: IO (Maybe String)
+getStackSnapshotPkgDb = do
+    putStrLn "getStackSnapshotPkgDb ..."
+
+    let p = (proc "stack" ["path", "--snapshot-pkg-db"]){ std_in  = CreatePipe
+                                                        , std_out = CreatePipe
+                                                        , std_err = CreatePipe
+                                                        }
+
+    (Just _, Just hout, Just _, _) <- createProcess p
+
+    ineof <- hIsEOF hout
+
+    x <- if ineof
+            then return ""
+            else (unwords . words) <$> hGetLine hout
+
+    return $ if x == "" then Nothing else Just x
+
+getStackLocalPkgDb :: IO (Maybe String)
+getStackLocalPkgDb = do
+    putStrLn "getStackLocalPkgDb ..."
+
+    let p = (proc "stack" ["path", "--local-pkg-db"]){ std_in  = CreatePipe
+                                                     , std_out = CreatePipe
+                                                     , std_err = CreatePipe
+                                                     }
+
+    (Just _, Just hout, Just _, _) <- createProcess p
+
+    ineof <- hIsEOF hout
+
+    x <- if ineof
+            then return ""
+            else (unwords . words) <$> hGetLine hout
+
+    return $ if x == "" then Nothing else Just x
+
+getGhcOptionsViaStack :: IO (Maybe [String])
+getGhcOptionsViaStack = do
+    putStrLn "getGhcOptionsViaStack..."
+
+    stackSnapshotPkgDb <- (fmap ("-package-db " ++)) <$> getStackSnapshotPkgDb :: IO (Maybe String)
+    stackLocalPkgDb    <- (fmap ("-package-db " ++)) <$> getStackLocalPkgDb    :: IO (Maybe String)
+
+    case (stackSnapshotPkgDb, stackLocalPkgDb) of
+        (Nothing, _) -> return Nothing
+        (_, Nothing) -> return Nothing
+        (Just stackSnapshotPkgDb', Just stackLocalPkgDb') -> do
+            let p = (proc "stack" ["ghci", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in  = CreatePipe
+                                                                                        , std_out = CreatePipe
+                                                                                        , std_err = CreatePipe
+                                                                                        }
+            (Just _, Just hout, Just _, _) <- createProcess p
+
+            ineof <- hIsEOF hout
+
+            result <- if ineof
+                        then return ""
+                        else do firstLine <- hGetLine hout
+                                if "GHCi" `isPrefixOf` firstLine
+                                     then error "Accidentally started an interactive session with 'stack ghci'?"
+                                     else readRestOfHandle hout
+
+            let result' = filter ("--interactive" `isPrefixOf`) . lines $ result
+
+            return $ case length result' of
+                1 -> Just $ (filterOpts $ words $ head result') ++ [stackSnapshotPkgDb', stackLocalPkgDb']
+                _ -> Nothing
 
 getGhcOptionsViaCabalRepl :: IO (Maybe [String])
 getGhcOptionsViaCabalRepl = do
@@ -221,7 +300,7 @@ parsePackageAndQualNameWithHash = do
     parsePackageFinalQualName = TP.many1 TP.anyChar
 
 getGhcOptionsViaCabalReplOrEmpty :: IO [String]
-getGhcOptionsViaCabalReplOrEmpty =  liftM (fromMaybe []) getGhcOptionsViaCabalRepl
+getGhcOptionsViaCabalReplOrEmpty = fromMaybe [] <$> shortcut [getGhcOptionsViaStack, getGhcOptionsViaCabalRepl]
 
 type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
 
@@ -557,12 +636,11 @@ optsForGhcPkg ("-no-user-package-conf":rest) = "--no-user-package-conf"        :
 optsForGhcPkg (_:rest) = optsForGhcPkg rest
 
 ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
-    stackResult     <- stackGhcPkgFindModule m                                           :: IO (Maybe String)
-    sandboxResult   <- hcPkgFindModule   allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m :: IO (Maybe String)
-    ghcPkgResult    <- _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m :: IO (Maybe String)
-
-    return $ foldl mplus Nothing [stackResult, sandboxResult, ghcPkgResult]
+ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
+    shortcut [ stackGhcPkgFindModule m
+             , hcPkgFindModule   allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+             , _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+             ]
 
 -- | Call @ghc-pkg find-module@ to determine that package that provides a module, e.g. @Prelude@ is defined
 -- in @base-4.6.0.1@.
@@ -621,12 +699,11 @@ stackGhcPkgFindModule m = do
 
 
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
-    stackHU     <- stackPkgHaddockUrl p
-    sandboxHU   <- sandboxPkgHaddockUrl p
-    ghcHU       <- _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
-
-    return $ foldl mplus Nothing [stackHU, sandboxHU, ghcHU]
+ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
+    shortcut [ stackPkgHaddockUrl p
+             , sandboxPkgHaddockUrl p
+             , _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+             ]
 
 -- | Call @ghc-pkg field@ to get the @haddock-html@ field for a package.
 _ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
@@ -693,14 +770,11 @@ stackPkgHaddockUrl p = do
 
 
 ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
-    stackHI     <- stackGhcPkgHaddockInterface p
-    sandboxHI   <- cabalPkgHaddockInterface p
-    ghcHI       <- _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
-
-    -- FIXME These foldl's are slow; need a short-cut version so we don't run
-    -- all three commands if the first succeeds. Something in Control.Monad no doubt.
-    return $ foldl mplus Nothing [stackHI, sandboxHI, ghcHI]
+ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
+    shortcut [ stackGhcPkgHaddockInterface p
+             , cabalPkgHaddockInterface p
+             , _ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p
+             ]
 
   where
 
