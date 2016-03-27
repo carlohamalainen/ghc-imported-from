@@ -204,8 +204,8 @@ getGhcOptionsViaStack :: IO (Maybe [String])
 getGhcOptionsViaStack = do
     putStrLn "getGhcOptionsViaStack..."
 
-    stackSnapshotPkgDb <- (fmap ("-package-db " ++)) <$> getStackSnapshotPkgDb :: IO (Maybe String)
-    stackLocalPkgDb    <- (fmap ("-package-db " ++)) <$> getStackLocalPkgDb    :: IO (Maybe String)
+    stackSnapshotPkgDb <- fmap ("-package-db " ++) <$> getStackSnapshotPkgDb :: IO (Maybe String)
+    stackLocalPkgDb    <- fmap ("-package-db " ++) <$> getStackLocalPkgDb    :: IO (Maybe String)
 
     case (stackSnapshotPkgDb, stackLocalPkgDb) of
         (Nothing, _) -> return Nothing
@@ -229,7 +229,7 @@ getGhcOptionsViaStack = do
             let result' = filter ("--interactive" `isPrefixOf`) . lines $ result
 
             return $ case length result' of
-                1 -> Just $ (filterOpts $ words $ head result') ++ [stackSnapshotPkgDb', stackLocalPkgDb']
+                1 -> Just $ filterOpts (words $ head result') ++ [stackSnapshotPkgDb', stackLocalPkgDb']
                 _ -> Nothing
 
 -- | Use "cabal repl" with our fake ghc binary to get all the GHC options related
@@ -709,7 +709,7 @@ _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
     putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
     putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
 
-    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 -- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
 hcPkgFindModule :: String -> IO (Maybe String)
@@ -727,25 +727,24 @@ hcPkgFindModule m = do
     putStrLn $ "hcPkgFindModule stdout: " ++ show output
     putStrLn $ "hcPkgFindModule stderr: " ++ show err
 
-    return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
+    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 -- | Call @stack exec ghc-pkg@ to find the package the provides a module.
 stackGhcPkgFindModule :: String -> IO (Maybe String)
 stackGhcPkgFindModule m = do
-    do let opts = ["exec", "ghc-pkg", "find-module", m, "--", "--simple-output"]
-       (_, Just hout, Just herr, _) <- createProcess (proc "stack" opts){ std_in  = CreatePipe
-                                                                        , std_out = CreatePipe
-                                                                        , std_err = CreatePipe
-                                                                        }
+    let opts = ["exec", "ghc-pkg", "find-module", m, "--", "--simple-output"]
+    (_, Just hout, Just herr, _) <- createProcess (proc "stack" opts){ std_in  = CreatePipe
+                                                                     , std_out = CreatePipe
+                                                                     , std_err = CreatePipe
+                                                                     }
 
-       output <- readRestOfHandle hout
-       err    <- readRestOfHandle herr
+    output <- readRestOfHandle hout
+    err    <- readRestOfHandle herr
 
-       putStrLn $ "stackGhcPkgFindModule stdout: " ++ show output
-       putStrLn $ "stackGhcPkgFindModule stderr: " ++ show err
+    putStrLn $ "stackGhcPkgFindModule stdout: " ++ show output
+    putStrLn $ "stackGhcPkgFindModule stderr: " ++ show err
 
-       return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
-
+    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
@@ -768,16 +767,12 @@ _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
     line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
     return $ Safe.lastMay $ words line
 
--- | Call cabal sandbox hc-pkg to find the haddock url.
-sandboxPkgHaddockUrl :: String -> IO (Maybe String)
-sandboxPkgHaddockUrl p = do
-    let opts = ["sandbox", "hc-pkg", "field", p, "haddock-html"]
-    putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-html"
-
-    (_, Just hout, _, _) <- createProcess (proc "cabal" opts){ std_in = CreatePipe
-                                                             , std_out = CreatePipe
-                                                             , std_err = CreatePipe
-                                                             }
+readHaddockHtmlOutput :: FilePath -> [String] -> IO (Maybe String)
+readHaddockHtmlOutput cmd opts = do
+    (_, Just hout, _, _) <- createProcess (proc cmd opts){ std_in = CreatePipe
+                                                         , std_out = CreatePipe
+                                                         , std_err = CreatePipe
+                                                         }
 
     line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
     print ("line", line)
@@ -786,37 +781,20 @@ sandboxPkgHaddockUrl p = do
         then do print ("line2", Safe.lastMay $ words line)
                 return $ Safe.lastMay $ words line
         else return Nothing
+
+-- | Call cabal sandbox hc-pkg to find the haddock url.
+sandboxPkgHaddockUrl :: String -> IO (Maybe String)
+sandboxPkgHaddockUrl p = do
+    let opts = ["sandbox", "hc-pkg", "field", p, "haddock-html"]
+    putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-html"
+    readHaddockHtmlOutput "cabal" opts
 
 -- | Call cabal stack to find the haddock url.
 stackPkgHaddockUrl :: String -> IO (Maybe String)
 stackPkgHaddockUrl p = do
     let opts = ["exec", "ghc-pkg", "field", p, "haddock-html"]
     putStrLn $ "stack exec hc-pkg field " ++ p ++ " haddock-html"
-
-    (_, Just hout, _, _) <- createProcess (proc "stack" opts){ std_in = CreatePipe
-                                                             , std_out = CreatePipe
-                                                             , std_err = CreatePipe
-                                                             }
-
-    line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-    print ("line", line)
-
-    if "haddock-html:" `isInfixOf` line
-        then do print ("line2", Safe.lastMay $ words line)
-                return $ Safe.lastMay $ words line
-        else return Nothing
-
-
-
-
-
-
-
-
-
-
-
-
+    readHaddockHtmlOutput "stack" opts
 
 ghcPkgHaddockInterface :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
@@ -852,7 +830,7 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
                                                                  }
 
         line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-        print $ ("ZZZZZZZZZZZZZ", line)
+        print ("ZZZZZZZZZZZZZ", line)
 
         return $ if "haddock-interfaces" `isInfixOf` line
             then Safe.lastMay $ words line
@@ -870,7 +848,7 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
                                                                  }
 
         line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-        print $ ("UUUUUUUUUUUUU", line, opts)
+        print ("UUUUUUUUUUUUU", line, opts)
 
         return $ if "haddock-interfaces" `isInfixOf` line
             then Safe.lastMay $ words line
@@ -893,7 +871,7 @@ getVisibleExports allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
                                                     putStrLn "You probably installed packages without using the '--enable-documentation' flag."
                                                     putStrLn ""
                                                     putStrLn "Try something like:\n\n\tcabal install --enable-documentation p"
-                                                    error $ "No haddock interfaces file, giving up."
+                                                    error "No haddock interfaces file, giving up."
             Right iface'    -> do let m  = map (\ii -> (Haddock.instMod ii, Haddock.instVisibleExports ii)) $ Haddock.ifInstalledIfaces iface' :: [(Module, [Name])]
                                       m' = map (\(mname, names) -> (showSDoc tdflags $ ppr mname, map (showSDoc tdflags . ppr) names)) m       :: [(String, [String])]
                                   return $ Just $ M.fromList m'
@@ -971,7 +949,7 @@ matchToUrl (importedFrom, haddock, foundModule, base) = do
     e <- doesFileExist f
 
     if e then return $ "file://" ++ f
-         else do putStrLn $ "Please reinstall packages using the flag '--enable-documentation' for 'cabal install.\n"
+         else do putStrLn "Please reinstall packages using the flag '--enable-documentation' for 'cabal install.\n"
                  error $ "Could not find " ++ f
 
 filterMatchingQualifiedImport :: String -> [HaskellModule] -> [HaskellModule]
@@ -988,7 +966,7 @@ getModuleExports :: GhcOptions
                  -> HaskellModule
                  -> Ghc (Maybe ([String], String))
 getModuleExports (GhcOptions gopts) ghcpkgOpts m = do
-    minfo     <- ((findModule (mkModuleName $ modName m) Nothing) >>= getModuleInfo)
+    minfo     <- (findModule (mkModuleName $ modName m) Nothing >>= getModuleInfo)
                    `gcatch` (\(_  :: SourceError)   -> return Nothing)
 
     p <- GhcMonad.liftIO $ ghcPkgFindModule gopts ghcpkgOpts (modName m)
@@ -1158,8 +1136,8 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
 
         let symbolToUse :: String
             symbolToUse = case (qnames_with_qualified_printing, qnames) of
-                            ((qq:_), _)     -> qq   -- We got a qualified name, with qualified printing. Qualified!
-                            ([], (qn:_))    -> qn   -- No qualified names (oh dear) so fall back to qnames list.
+                            (qq:_, _)     -> qq   -- We got a qualified name, with qualified printing. Qualified!
+                            ([], qn:_)    -> qn   -- No qualified names (oh dear) so fall back to qnames list.
                             ([], [])        -> error "Lists 'qnames' and 'qnames_with_qualified_printing' are both empty."
 
         GhcMonad.liftIO $ print ("symbolToUse", symbolToUse)
