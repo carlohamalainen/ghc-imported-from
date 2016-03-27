@@ -2,7 +2,6 @@
 
 module ImportedFromSpec where
 
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf)
 import Language.Haskell.GhcImportedFrom
 import System.FilePath()
 import Test.Hspec

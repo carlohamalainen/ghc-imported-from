@@ -111,12 +111,44 @@ tdflags :: DynFlags
 tdflags = tracingDynFlags
 #endif
 
+type GHCOption = String
+
+type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
+
+type Symbol = String -- ^ A symbol, possibly qualified, e.g. @bar@ or @Foo.bar@.
+
+newtype GhcOptions
+    -- | List of user-supplied GHC options, refer to @tets@ subdirectory for example usage. Note that
+    -- GHC API and ghc-pkg have inconsistencies in the naming of options, see <http://www.vex.net/~trebla/haskell/sicp.xhtml> for more details.
+    = GhcOptions [String] deriving (Show)
+
+instance Monoid GhcOptions where
+    mempty  = GhcOptions []
+    (GhcOptions g) `mappend` (GhcOptions h) = GhcOptions $ g ++ h
+
+newtype GhcPkgOptions
+    -- | List of user-supplied ghc-pkg options.
+    = GhcPkgOptions [String] deriving (Show)
+
+data HaskellModule
+    -- | Information about an import of a Haskell module.
+    = HaskellModule { modName           :: String
+                    , modQualifier      :: Maybe String
+                    , modIsImplicit     :: Bool
+                    , modHiding         :: [String]
+                    , modImportedAs     :: Maybe String
+                    , modSpecifically   :: [String]
+                    } deriving (Show, Eq)
+
+
 -- trace' :: Show x => String -> x -> b -> b
 -- trace' m x = trace (m ++ ">>> " ++ show x)
 
 -- trace'' :: Outputable x => String -> x -> b -> b
 -- trace'' m x = trace (m ++ ">>> " ++ showSDoc tdflags (ppr x))
 
+-- | Evaluate IO actions in sequence, returning the first that
+-- succeeds.
 shortcut :: [IO (Maybe a)] -> IO (Maybe a)
 shortcut []     = return Nothing
 shortcut (a:as) = do
@@ -126,8 +158,7 @@ shortcut (a:as) = do
         a''@(Just _)    -> return a''
         Nothing         -> shortcut as
 
-type GHCOption = String
-
+-- | Use "stack path" to get the snapshot package db location.
 getStackSnapshotPkgDb :: IO (Maybe String)
 getStackSnapshotPkgDb = do
     putStrLn "getStackSnapshotPkgDb ..."
@@ -147,6 +178,7 @@ getStackSnapshotPkgDb = do
 
     return $ if x == "" then Nothing else Just x
 
+-- | Use "stack path" to get the local package db location.
 getStackLocalPkgDb :: IO (Maybe String)
 getStackLocalPkgDb = do
     putStrLn "getStackLocalPkgDb ..."
@@ -166,6 +198,8 @@ getStackLocalPkgDb = do
 
     return $ if x == "" then Nothing else Just x
 
+-- | Use "stack ghci" with our fake ghc binary to get all the GHC options related
+-- to the local Stack configuration (if present).
 getGhcOptionsViaStack :: IO (Maybe [String])
 getGhcOptionsViaStack = do
     putStrLn "getGhcOptionsViaStack..."
@@ -198,6 +232,8 @@ getGhcOptionsViaStack = do
                 1 -> Just $ (filterOpts $ words $ head result') ++ [stackSnapshotPkgDb', stackLocalPkgDb']
                 _ -> Nothing
 
+-- | Use "cabal repl" with our fake ghc binary to get all the GHC options related
+-- to the local cabal sandbox (if present).
 getGhcOptionsViaCabalRepl :: IO (Maybe [String])
 getGhcOptionsViaCabalRepl = do
     putStrLn "getGhcOptionsViaCabalRepl..."
@@ -213,7 +249,7 @@ getGhcOptionsViaCabalRepl = do
                     then return ""
                     else do firstLine <- hGetLine hout
                             if "GHCi" `isPrefixOf` firstLine
-                                 then return "DERP" -- stuffed up, should report error - FIXME change this to an error or something?
+                                 then error "Accidentally started an interactive session?"
                                  else do rest <- readRestOfHandle hout
                                          return $ firstLine ++ "\n" ++ rest
 
@@ -222,45 +258,49 @@ getGhcOptionsViaCabalRepl = do
     case length result' of 1 -> return $ Just $ filterOpts $ words $ head result'
                            _ -> return Nothing
 
+-- | GHC options that we don't use when partially compiling the source module.
 filterOpts :: [String] -> [String]
 filterOpts xs = filter (\x -> x /= "--interactive" && x /= "-fbuilding-cabal-package" && x /= "-Wall") $ dropModuleNames xs
 
-dropModuleNames :: [String] -> [String]
-dropModuleNames = filter parseHelper
+   where
 
-parseHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-parseHaskellModuleName = do
-    c <- TP.upper
-    cs <- TP.many (TP.choice [TP.lower, TP.upper, TP.char '_', TP.digit])
-    return (c:cs)
+    dropModuleNames :: [String] -> [String]
+    dropModuleNames = filter parseHelper
 
-parseDottedHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-parseDottedHaskellModuleName = TP.char '.' >> parseHaskellModuleName
+    parseHelper :: String -> Bool
+    parseHelper s = case TP.parse (parseFullHaskellModuleName <* TP.eof) "" s of Right _ -> False
+                                                                                 Left _  -> True
 
-parseFullHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
-parseFullHaskellModuleName = do
-    h <- parseHaskellModuleName
-    rest <- many parseDottedHaskellModuleName
+    parseFullHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parseFullHaskellModuleName = do
+        h <- parseHaskellModuleName
+        rest <- many parseDottedHaskellModuleName
 
-    return $ intercalate "." (h:rest)
+        return $ intercalate "." (h:rest)
 
-parseHelper :: String -> Bool
-parseHelper s = case TP.parse (parseFullHaskellModuleName <* TP.eof) "" s of Right _ -> False
-                                                                             Left _  -> True
+    parseHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parseHaskellModuleName = do
+        c <- TP.upper
+        cs <- TP.many (TP.choice [TP.lower, TP.upper, TP.char '_', TP.digit])
+        return (c:cs)
+
+    parseDottedHaskellModuleName :: TP.ParsecT String u Data.Functor.Identity.Identity String
+    parseDottedHaskellModuleName = TP.char '.' >> parseHaskellModuleName
+
 
 parsePackageAndQualName :: forall u. TP.ParsecT String u Identity (String, String)
 parsePackageAndQualName = TP.choice [TP.try parsePackageAndQualNameWithHash, parsePackageAndQualNameNoHash]
 
--- Package with no hash (seems to be for internal packages?)
--- base-4.8.2.0:Data.Foldable.length
-parsePackageAndQualNameNoHash :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
-parsePackageAndQualNameNoHash = do
-    packageName <- parsePackageName
-    qName       <- parsePackageFinalQualName
-
-    return (packageName, qName)
-
   where
+
+    -- Package with no hash (seems to be for internal packages?)
+    -- base-4.8.2.0:Data.Foldable.length
+    parsePackageAndQualNameNoHash :: TP.ParsecT String u Data.Functor.Identity.Identity (String, String)
+    parsePackageAndQualNameNoHash = do
+        packageName <- parsePackageName
+        qName       <- parsePackageFinalQualName
+
+        return (packageName, qName)
 
     parsePackageName :: TP.ParsecT String u Data.Functor.Identity.Identity String
     parsePackageName = TP.anyChar `TP.manyTill` TP.char ':'
@@ -289,38 +329,60 @@ parsePackageAndQualNameWithHash = do
     parsePackageFinalQualName :: TP.ParsecT String u Data.Functor.Identity.Identity String
     parsePackageFinalQualName = TP.many1 TP.anyChar
 
-getGhcOptionsViaCabalReplOrEmpty :: IO [String]
-getGhcOptionsViaCabalReplOrEmpty = fromMaybe [] <$> shortcut [getGhcOptionsViaStack, getGhcOptionsViaCabalRepl]
+-- | Use "cabal repl" or "stack ghci" to try to get GHC options. Lots of things here, for
+-- example:
+--
+--      --interactive -fbuilding-cabal-package -O0 -outputdir dist/build/rename-photos/rename-photos-tmp
+--      -odir dist/build/rename-photos/rename-photos-tmp -hidir dist/build/rename-photos/rename-photos-tmp
+--      -stubdir dist/build/rename-photos/rename-photos-tmp -i -idist/build/rename-photos/rename-photos-tmp
+--      -i. -idist/build/autogen -Idist/build/autogen -Idist/build/rename-photos/rename-photos-tmp
+--      -optP-include -optPdist/build/autogen/cabal_macros.h -dynload deploy
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/array_67iodizgJQIIxYVTp4emlA
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/base_HQfYBxpPvuw8OunzQu6JGM
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/binar_3uXFWMoAGBg0xKP9MHKRwi
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/rts
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/bytes_6VWy06pWzJq9evDvK2d4w6
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/conta_2C3ZI8RgPO2LBMidXKTvIU
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/deeps_6vMKxt5sPFR0XsbRWvvq59
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/direc_0hFG6ZxK1nk4zsyOqbNHfm
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/filep_Ey7a1in9roBAE8bUFJ5R9m
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/ghcpr_8TmvWUcS1U1IKHT0levwg3
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/integ_2aU3IZNMF9a7mQ0OzsZ0dS
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/mmorph-1.0.6-2Jm5FlYBlmjDhcU1ovZRKP
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/mtl-2.2.1-Aue4leSeVkpKLsfHIV51E8
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/parsec-3.1.9-EE5NO1mlYLh4J8mgDEshNv
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/pipes-4.1.8-77ihSQ5c6PS0Tlq86aN8G4
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/proce_52AgREEfSrnJLlkGV9YZZJ
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/text-1.2.2.0-5c7VCmRXJenGcMPs3kwpkI
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/time_FTheb6LSxyX1UABIbBXRfn
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/trans_GZTjP9K5WFq01xC9BAGQpF
+--      -optl-Wl,-rpath,/scratch/sandboxes/camera-scripts/lib/x86_64-linux-ghc-7.10.3/transformers-compat-0.5.1.4-EfAx8JliEAN1Gu6x0L8GYr
+--      -optl-Wl,-rpath,/opt/ghc/7.10.3/lib/ghc-7.10.3/unix_KZL8h98IqDM57kQSPo1mKx
+--      -hide-all-packages
+--      -no-user-package-db
+--      -package-db /scratch/sandboxes/camera-scripts/x86_64-linux-ghc-7.10.3-packages.conf.d
+--      -package-db dist/package.conf.inplace
+--      -package-id base-4.8.2.0-0d6d1084fbc041e1cded9228e80e264d
+--      -package-id bytestring-0.10.6.0-c60f4c543b22c7f7293a06ae48820437
+--      -package-id containers-0.5.6.2-e59c9b78d840fa743d4169d4bea15592
+--      -package-id directory-1.2.2.0-f8e14a9d121b76a00a0f669ee724a732
+--      -package-id filepath-1.4.0.0-f97d1e4aebfd7a03be6980454fe31d6e
+--      -package-id parsec-3.1.9-a68c5d78bf2a63f486c525b960f2dddd
+--      -package-id pipes-4.1.8-394d3831f54f6d7e2c83d050d94ecb3a
+--      -package-id process-1.2.3.0-78f206acb2330ea8066c6c19c87356f0
+--      -package-id text-1.2.2.0-daec687352505adca80a15e023cbae5c
+--      -package-id transformers-0.4.2.0-81450cd8f86b36eaa8fa0cbaf6efc3a3
+--      -XHaskell98
+--      ./renamePhotos.hs
+getGhcOptionsViaCabalOrStack :: IO [String]
+getGhcOptionsViaCabalOrStack = fromMaybe [] <$> shortcut [getGhcOptionsViaStack, getGhcOptionsViaCabalRepl]
 
-type QualifiedName = String -- ^ A qualified name, e.g. @Foo.bar@.
-
-type Symbol = String -- ^ A symbol, possibly qualified, e.g. @bar@ or @Foo.bar@.
-
-newtype GhcOptions
-    -- | List of user-supplied GHC options, refer to @tets@ subdirectory for example usage. Note that
-    -- GHC API and ghc-pkg have inconsistencies in the naming of options, see <http://www.vex.net/~trebla/haskell/sicp.xhtml> for more details.
-    = GhcOptions [String] deriving (Show)
-
-newtype GhcPkgOptions
-    -- | List of user-supplied ghc-pkg options.
-    = GhcPkgOptions [String] deriving (Show)
-
-data HaskellModule
-    -- | Information about an import of a Haskell module.
-    = HaskellModule { modName           :: String
-                    , modQualifier      :: Maybe String
-                    , modIsImplicit     :: Bool
-                    , modHiding         :: [String]
-                    , modImportedAs     :: Maybe String
-                    , modSpecifically   :: [String]
-                    } deriving (Show, Eq)
-
--- | Add user-supplied GHC options to those discovered via cabl repl.
+-- | Add user-supplied GHC options.
 modifyDFlags :: [String] -> DynFlags -> IO ([GHCOption], DynFlags)
 modifyDFlags ghcOpts0 dflags0 =
     -- defaultErrorHandler defaultFatalMessager defaultFlushOut $
         runGhc (Just libdir) $ do
-            ghcOpts1 <- GhcMonad.liftIO getGhcOptionsViaCabalReplOrEmpty
+            ghcOpts1 <- GhcMonad.liftIO getGhcOptionsViaCabalOrStack
 
             (dflags1, _, _) <- GHC.parseDynamicFlags dflags0 (map SrcLoc.noLoc $ ghcOpts0 ++ ghcOpts1)
 
@@ -358,7 +420,6 @@ setDynamicFlags (GhcOptions extraGHCOpts) dflags0 = do
 -- ]
 --
 -- See also 'toHaskellModule' and 'getSummary'.
-
 getTextualImports :: GhcMonad m => GhcOptions -> FilePath -> String -> m ([GHCOption], [SrcLoc.Located (ImportDecl RdrName)])
 getTextualImports ghcopts targetFile targetModuleName = do
     GhcMonad.liftIO $ putStrLn $ "getTextualImports: " ++ show (targetFile, targetModuleName)
@@ -448,7 +509,6 @@ getSummary ghcopts targetFile targetModuleName = do
 --                 , modSpecifically = []
 --                 }
 -- ]
-
 toHaskellModule :: SrcLoc.Located (GHC.ImportDecl GHC.RdrName) -> HaskellModule
 toHaskellModule idecl = HaskellModule name qualifier isImplicit hiding importedAs specifically
     where idecl'     = SrcLoc.unLoc idecl
@@ -543,9 +603,8 @@ moduleOfQualifiedName qn = if null bits
 -- "h = Data.Map.Base.fromList [(\"x\", \"y\")]"
 -- "Data.Map.Base.fromList [(\"x\", \"y\")]"
 -- "Data.Map.Base.fromList"
-
-qualifiedName :: GhcOptions -> FilePath -> String -> Int -> Int -> [String] -> Ghc [String]
-qualifiedName _ _ targetModuleName lineNr colNr importList = do
+qualifiedName :: String -> Int -> Int -> [String] -> Ghc [String]
+qualifiedName targetModuleName lineNr colNr importList = do
         setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
@@ -575,8 +634,8 @@ qualifiedName _ _ targetModuleName lineNr colNr importList = do
 -- "Data.Map.Base.fromList". Will probably replace qualifiedName once more testing has
 -- been done. If this works we can also remove 'ghcPkgFindModule' which uses a shell
 -- call to try to find the package name.
-qualifiedName' :: GhcOptions -> FilePath -> String -> Int -> Int -> String -> [String] -> Ghc [String]
-qualifiedName' _ _ targetModuleName lineNr colNr symbol importList = do
+qualifiedName' :: String -> Int -> Int -> String -> [String] -> Ghc [String]
+qualifiedName' targetModuleName lineNr colNr symbol importList = do
         setContext (map (IIDecl . simpleImportDecl . mkModuleName) (targetModuleName:importList))
            `gcatch` (\(s  :: SourceError)    -> do GhcMonad.liftIO $ putStrLn $ "qualifiedName: setContext failed with a SourceError, trying to continue anyway..." ++ show s
                                                    setContext $ map (IIDecl . simpleImportDecl . mkModuleName) importList)
@@ -628,7 +687,7 @@ optsForGhcPkg (_:rest) = optsForGhcPkg rest
 ghcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m =
     shortcut [ stackGhcPkgFindModule m
-             , hcPkgFindModule   allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
+             , hcPkgFindModule   m
              , _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m
              ]
 
@@ -653,8 +712,8 @@ _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
     return $ join $ Safe.lastMay <$> words <$> (Safe.lastMay . lines) output
 
 -- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
-hcPkgFindModule :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
-hcPkgFindModule _ _ m = do
+hcPkgFindModule :: String -> IO (Maybe String)
+hcPkgFindModule m = do
     let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
 
     (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
@@ -1086,10 +1145,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         -- let haskellModules = if null filterThings then haskellModules0 else filterThings
         let haskellModuleNames = if null filterThings then map modName haskellModules0 else map modName filterThings
 
-        qnames <- filter (not . (' ' `elem`)) <$> qualifiedName (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr haskellModuleNames
+        qnames <- filter (not . (' ' `elem`)) <$> qualifiedName targetModule lineNr colNr haskellModuleNames
         GhcMonad.liftIO $ putStrLn $ "qualified names: " ++ show qnames
 
-        qnames_with_qualified_printing <- filter (not . (' ' `elem`)) <$> qualifiedName' (GhcOptions ghcOpts0) targetFile targetModule lineNr colNr symbol haskellModuleNames :: Ghc [String]
+        qnames_with_qualified_printing <- filter (not . (' ' `elem`)) <$> qualifiedName' targetModule lineNr colNr symbol haskellModuleNames :: Ghc [String]
         GhcMonad.liftIO $ putStrLn $ "qualified names with qualified printing: " ++ show qnames_with_qualified_printing
 
         let parsedPackagesAndQualNames :: [Either TP.ParseError (String, String)]
@@ -1098,7 +1157,10 @@ guessHaddockUrl _targetFile targetModule symbol lineNr colNr (GhcOptions ghcOpts
         GhcMonad.liftIO $ putStrLn $ "qqqqqq1: " ++ show parsedPackagesAndQualNames
 
         let symbolToUse :: String
-            symbolToUse = fromMaybe (head qnames) (Safe.headMay qnames_with_qualified_printing) -- FIXME dodgy use of 'head'
+            symbolToUse = case (qnames_with_qualified_printing, qnames) of
+                            ((qq:_), _)     -> qq   -- We got a qualified name, with qualified printing. Qualified!
+                            ([], (qn:_))    -> qn   -- No qualified names (oh dear) so fall back to qnames list.
+                            ([], [])        -> error "Lists 'qnames' and 'qnames_with_qualified_printing' are both empty."
 
         GhcMonad.liftIO $ print ("symbolToUse", symbolToUse)
 
