@@ -10,7 +10,6 @@ module Main where
 -- to be the system's current default ghc binary. Will this cause problems if
 -- someone is using --with-ghc elsewhere to choose the ghc binary?
 
-import Data.List (unwords)
 import System.Cmd (rawSystem)
 import System.Environment (getArgs)
 
