@@ -42,6 +42,8 @@ library
                  , parsec
                  , optparse-applicative
                  , haddock-api
+                 , hspec
+                 , hspec-discover
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else
@@ -79,8 +81,9 @@ executable ghc-imported-from
                , transformers
                , parsec
                , optparse-applicative
-               , hspec
                , haddock-api
+               , hspec
+               , hspec-discover
 
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
@@ -96,8 +99,7 @@ Test-Suite spec
   Main-Is:              Spec.hs
   Hs-Source-Dirs:       test, .
   Type:                 exitcode-stdio-1.0
-  Other-Modules:        Dir
-                        ImportedFromSpec
+  Other-Modules:        ImportedFromSpec
   Build-Depends:        base >=4.0 && <5
                       , syb
                       , ghc
@@ -115,6 +117,7 @@ Test-Suite spec
                       , parsec
                       , optparse-applicative
                       , hspec
+                      , hspec-discover
                       , haddock-api
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
