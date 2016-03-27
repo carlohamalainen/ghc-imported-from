@@ -11,6 +11,9 @@ import Data.List (isPrefixOf)
 import System.Directory
 import System.FilePath (addTrailingPathSeparator)
 
+-------------------------------------------------------------------------------
+-- withDirectory_, withDirectory, and toRelativeDir are copied
+-- from ghc-mod.
 withDirectory_ :: FilePath -> IO a -> IO a
 withDirectory_ dir action = bracket getCurrentDirectory
                                     setCurrentDirectory
@@ -31,6 +34,7 @@ toRelativeDir dir file
 
 isRight :: forall a b. Either a b -> Bool
 isRight = either (const False) (const True)
+-------------------------------------------------------------------------------
 
 -- Instead of shouldSatisfy isRight, these should check for the right module/package
 -- name turning up in the results.
