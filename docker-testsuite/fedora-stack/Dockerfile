@@ -12,7 +12,10 @@ WORKDIR     /opt
 # RUN tar zxf ghc-imported-from-0.3.0.0.tar.gz
 # WORKDIR /opt/ghc-imported-from-0.3.0.0
 
-RUN         git clone https://github.com/carlohamalainen/ghc-imported-from.git /opt/ghc-imported-from
+# RUN         git clone https://github.com/carlohamalainen/ghc-imported-from.git /opt/ghc-imported-from
+# WORKDIR     /opt/ghc-imported-from
+
+ADD         ghc-imported-from-0.3.0.2.tar.gz /opt/ghc-imported-from/
 WORKDIR     /opt/ghc-imported-from
 
 RUN     stack setup
