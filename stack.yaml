@@ -3,4 +3,7 @@ packages:
 - '.'
 extra-deps:
 - ghc-7.10.3
-resolver: lts-5.8
+- conceit-0.3.2.0
+- pipes-text-0.0.1.0
+- process-streaming-0.7.2.2
+resolver: lts-5.10

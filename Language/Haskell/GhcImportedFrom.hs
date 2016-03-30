@@ -67,6 +67,10 @@ import System.FilePath
 import System.IO
 import System.Process
 import TcRnTypes()
+import System.Process.Streaming
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
+import Data.ByteString.Internal (w2c)
 
 import qualified GhcMonad
 import qualified MonadUtils()
@@ -158,45 +162,41 @@ shortcut (a:as) = do
         a''@(Just _)    -> return a''
         Nothing         -> shortcut as
 
+executeFallibly' :: String -> [String] -> IO (Maybe (String, String))
+executeFallibly' cmd args = do
+    x <- executeFallibly (pipeoe intoLazyBytes intoLazyBytes) (proc cmd args)
+
+    return $ case x of
+        Left e              -> Nothing
+        Right (_, (a, b))   -> Just $ (b2s a, b2s b)
+
+  where
+
+    b2s = map w2c . B.unpack . BL.toStrict
+
 -- | Use "stack path" to get the snapshot package db location.
 getStackSnapshotPkgDb :: IO (Maybe String)
 getStackSnapshotPkgDb = do
     putStrLn "getStackSnapshotPkgDb ..."
 
-    let p = (proc "stack" ["path", "--snapshot-pkg-db"]){ std_in  = CreatePipe
-                                                        , std_out = CreatePipe
-                                                        , std_err = CreatePipe
-                                                        }
+    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap snd) <$> executeFallibly' "stack" ["path", "--snapshot-pkg-db"]
 
-    (Just _, Just hout, Just _, _) <- createProcess p
-
-    ineof <- hIsEOF hout
-
-    x <- if ineof
-            then return ""
-            else (unwords . words) <$> hGetLine hout
-
-    return $ if x == "" then Nothing else Just x
+    return $ case x of
+        Nothing     -> Nothing
+        Just ""     -> Nothing
+        Just x'     -> Just x'
 
 -- | Use "stack path" to get the local package db location.
 getStackLocalPkgDb :: IO (Maybe String)
 getStackLocalPkgDb = do
     putStrLn "getStackLocalPkgDb ..."
 
-    let p = (proc "stack" ["path", "--local-pkg-db"]){ std_in  = CreatePipe
-                                                     , std_out = CreatePipe
-                                                     , std_err = CreatePipe
-                                                     }
+    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap snd) <$> executeFallibly' "stack" ["path", "--local-pkg-db"]
 
-    (Just _, Just hout, Just _, _) <- createProcess p
-
-    ineof <- hIsEOF hout
-
-    x <- if ineof
-            then return ""
-            else (unwords . words) <$> hGetLine hout
-
-    return $ if x == "" then Nothing else Just x
+    return $ case x of
+        Nothing     -> Nothing
+        Just ""     -> Nothing
+        Just x'     -> Just x'
 
 -- | Use "stack ghci" with our fake ghc binary to get all the GHC options related
 -- to the local Stack configuration (if present).
@@ -211,26 +211,15 @@ getGhcOptionsViaStack = do
         (Nothing, _) -> return Nothing
         (_, Nothing) -> return Nothing
         (Just stackSnapshotPkgDb', Just stackLocalPkgDb') -> do
-            let p = (proc "stack" ["ghci", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in  = CreatePipe
-                                                                                        , std_out = CreatePipe
-                                                                                        , std_err = CreatePipe
-                                                                                        }
-            (Just _, Just hout, Just _, _) <- createProcess p
+            x <- executeFallibly' "stack" ["ghci", "--with-ghc=fake-ghc-for-ghc-imported-from"]
 
-            ineof <- hIsEOF hout
+            let result = case x of
+                            Nothing         -> []
+                            Just (_, x')    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
 
-            result <- if ineof
-                        then return ""
-                        else do firstLine <- hGetLine hout
-                                if "GHCi" `isPrefixOf` firstLine
-                                     then error "Accidentally started an interactive session with 'stack ghci'?"
-                                     else readRestOfHandle hout
-
-            let result' = filter ("--interactive" `isPrefixOf`) . lines $ result
-
-            return $ case length result' of
-                1 -> Just $ filterOpts (words $ head result') ++ [stackSnapshotPkgDb', stackLocalPkgDb']
-                _ -> Nothing
+            return $ case result of
+                [r] -> Just $ filterOpts (words r) ++ [stackSnapshotPkgDb', stackLocalPkgDb']
+                _   -> Nothing
 
 -- | Use "cabal repl" with our fake ghc binary to get all the GHC options related
 -- to the local cabal sandbox (if present).
@@ -238,25 +227,15 @@ getGhcOptionsViaCabalRepl :: IO (Maybe [String])
 getGhcOptionsViaCabalRepl = do
     putStrLn "getGhcOptionsViaCabalRepl..."
 
-    (Just _, Just hout, Just _, _) <- createProcess (proc "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]){ std_in = CreatePipe
-                                                                                                                        , std_out = CreatePipe
-                                                                                                                        , std_err = CreatePipe
-                                                                                                                        }
+    x <- executeFallibly' "cabal" ["repl", "--with-ghc=fake-ghc-for-ghc-imported-from"]
 
-    ineof <- hIsEOF hout
+    let result = case x of
+                    Nothing         -> []
+                    Just (_, x')    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
 
-    result <- if ineof
-                    then return ""
-                    else do firstLine <- hGetLine hout
-                            if "GHCi" `isPrefixOf` firstLine
-                                 then error "Accidentally started an interactive session?"
-                                 else do rest <- readRestOfHandle hout
-                                         return $ firstLine ++ "\n" ++ rest
-
-    let result' = filter ("--interactive" `isPrefixOf`) . lines $ result
-
-    case length result' of 1 -> return $ Just $ filterOpts $ words $ head result'
-                           _ -> return Nothing
+    return $ case result of
+        [r] -> Just $ filterOpts (words r)
+        _   -> Nothing
 
 -- | GHC options that we don't use when partially compiling the source module.
 filterOpts :: [String] -> [String]
@@ -698,53 +677,39 @@ _ghcPkgFindModule allGhcOptions (GhcPkgOptions extraGHCPkgOpts) m = do
     let opts = ["find-module", m, "--simple-output"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg " ++ show opts
 
-    (_, Just hout, Just herr, _) <- createProcess (proc "ghc-pkg" opts){ std_in  = CreatePipe
-                                                                       , std_out = CreatePipe
-                                                                       , std_err = CreatePipe
-                                                                       }
+    x <- executeFallibly' "ghc-pkg" opts
 
-    output <- readRestOfHandle hout
-    err    <- readRestOfHandle herr
-
-    putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
-    putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
-
-    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
+    case x of
+        Nothing             -> return Nothing
+        Just (output, err)  -> do putStrLn $ "_ghcPkgFindModule stdout: " ++ show output
+                                  putStrLn $ "_ghcPkgFindModule stderr: " ++ show err
+                                  return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 -- | Call @cabal sandbox hc-pkg@ to find the package the provides a module.
 hcPkgFindModule :: String -> IO (Maybe String)
 hcPkgFindModule m = do
     let opts = ["sandbox", "hc-pkg", "find-module", m, "--", "--simple-output"]
 
-    (_, Just hout, Just herr, _) <- createProcess (proc "cabal" opts){ std_in  = CreatePipe
-                                                                     , std_out = CreatePipe
-                                                                     , std_err = CreatePipe
-                                                                     }
+    x <- executeFallibly' "cabal" opts
 
-    output <- readRestOfHandle hout
-    err    <- readRestOfHandle herr
-
-    putStrLn $ "hcPkgFindModule stdout: " ++ show output
-    putStrLn $ "hcPkgFindModule stderr: " ++ show err
-
-    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
+    case x of
+        Nothing             -> return Nothing
+        Just (output, err)  -> do putStrLn $ "hcPkgFindModule stdout: " ++ show output
+                                  putStrLn $ "hcPkgFindModule stderr: " ++ show err
+                                  return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 -- | Call @stack exec ghc-pkg@ to find the package the provides a module.
 stackGhcPkgFindModule :: String -> IO (Maybe String)
 stackGhcPkgFindModule m = do
     let opts = ["exec", "ghc-pkg", "find-module", m, "--", "--simple-output"]
-    (_, Just hout, Just herr, _) <- createProcess (proc "stack" opts){ std_in  = CreatePipe
-                                                                     , std_out = CreatePipe
-                                                                     , std_err = CreatePipe
-                                                                     }
 
-    output <- readRestOfHandle hout
-    err    <- readRestOfHandle herr
+    x <- executeFallibly' "stack" opts
 
-    putStrLn $ "stackGhcPkgFindModule stdout: " ++ show output
-    putStrLn $ "stackGhcPkgFindModule stderr: " ++ show err
-
-    return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
+    case x of
+        Nothing             -> return Nothing
+        Just (output, err)  -> do putStrLn $ "stackGhcPkgFindModule stdout: " ++ show output
+                                  putStrLn $ "stackGhcPkgFindModule stderr: " ++ show err
+                                  return $ join $ (Safe.lastMay . words) <$> (Safe.lastMay . lines) output
 
 ghcPkgHaddockUrl :: [String] -> GhcPkgOptions -> String -> IO (Maybe String)
 ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
@@ -759,28 +724,25 @@ _ghcPkgHaddockUrl allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
     let opts = ["field", p, "haddock-html"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
     putStrLn $ "ghc-pkg "++ show opts
 
-    (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
-                                                               , std_out = CreatePipe
-                                                               , std_err = CreatePipe
-                                                               }
+    x <- executeFallibly' "ghc-pkg" opts
 
-    line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-    return $ Safe.lastMay $ words line
+    case x of
+        Nothing             -> return Nothing
+        Just (hout, _)      -> return $ Safe.lastMay $ words $ reverse . dropWhile (== '\n') . reverse $ hout
 
 readHaddockHtmlOutput :: FilePath -> [String] -> IO (Maybe String)
 readHaddockHtmlOutput cmd opts = do
-    (_, Just hout, _, _) <- createProcess (proc cmd opts){ std_in = CreatePipe
-                                                         , std_out = CreatePipe
-                                                         , std_err = CreatePipe
-                                                         }
+    x <- executeFallibly' cmd opts
 
-    line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-    print ("line", line)
+    case x of
+        Nothing             -> return Nothing
+        Just (hout, _)      -> do let line = reverse . dropWhile (== '\n') . reverse $ hout
+                                  print ("line", line)
 
-    if "haddock-html:" `isInfixOf` line
-        then do print ("line2", Safe.lastMay $ words line)
-                return $ Safe.lastMay $ words line
-        else return Nothing
+                                  if "haddock-html:" `isInfixOf` line
+                                      then do print ("line2", Safe.lastMay $ words line)
+                                              return $ Safe.lastMay $ words line
+                                      else return Nothing
 
 -- | Call cabal sandbox hc-pkg to find the haddock url.
 sandboxPkgHaddockUrl :: String -> IO (Maybe String)
@@ -810,13 +772,11 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
         let opts = ["field", p, "haddock-interfaces"] ++ ["--global", "--user"] ++ optsForGhcPkg allGhcOptions ++ extraGHCPkgOpts
         putStrLn $ "ghc-pkg "++ show opts
 
-        (_, Just hout, _, _) <- createProcess (proc "ghc-pkg" opts){ std_in = CreatePipe
-                                                                   , std_out = CreatePipe
-                                                                   , std_err = CreatePipe
-                                                                   }
+        x <- executeFallibly' "ghc-pkg" opts
 
-        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-        return $ Safe.lastMay $ words line
+        return $ case x of
+            Nothing         -> Nothing
+            Just (hout, _)  -> Safe.lastMay $ words $ reverse . dropWhile (== '\n') . reverse $ hout
 
     -- | Call cabal sandbox hc-pkg to find the haddock Interfaces.
     cabalPkgHaddockInterface :: IO (Maybe String)
@@ -824,17 +784,16 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
         let opts = ["sandbox", "hc-pkg", "field", p, "haddock-interfaces"]
         putStrLn $ "cabal sandbox hc-pkg field " ++ p ++ " haddock-interfaces"
 
-        (_, Just hout, _, _) <- createProcess (proc "cabal" opts){ std_in = CreatePipe
-                                                                 , std_out = CreatePipe
-                                                                 , std_err = CreatePipe
-                                                                 }
+        x <- executeFallibly' "cabal" opts
 
-        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-        print ("ZZZZZZZZZZZZZ", line)
+        case x of
+            Nothing         -> return Nothing
+            Just (hout, _)  -> do let line = reverse . dropWhile (== '\n') . reverse $ hout
+                                  print ("ZZZZZZZZZZZZZ", line)
 
-        return $ if "haddock-interfaces" `isInfixOf` line
-            then Safe.lastMay $ words line
-            else Nothing
+                                  return $ if "haddock-interfaces" `isInfixOf` line
+                                      then Safe.lastMay $ words line
+                                      else Nothing
 
     -- | Call stack to find the haddock Interfaces.
     stackGhcPkgHaddockInterface :: IO (Maybe String)
@@ -842,18 +801,16 @@ ghcPkgHaddockInterface allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p =
         let opts = ["exec", "ghc-pkg", "field", p, "haddock-interfaces"]
         putStrLn $ "stack exec ghc-pkg field " ++ p ++ " haddock-interfaces"
 
-        (_, Just hout, _, _) <- createProcess (proc "stack" opts){ std_in = CreatePipe
-                                                                 , std_out = CreatePipe
-                                                                 , std_err = CreatePipe
-                                                                 }
+        x <- executeFallibly' "stack" opts
 
-        line <- (reverse . dropWhile (== '\n') . reverse) <$> readRestOfHandle hout
-        print ("UUUUUUUUUUUUU", line, opts)
+        case x of
+            Nothing         -> return Nothing
+            Just (hout, _)  -> do let line = reverse . dropWhile (== '\n') . reverse $ hout
+                                  print ("UUUUUUUUUUUUU", line, opts)
 
-        return $ if "haddock-interfaces" `isInfixOf` line
-            then Safe.lastMay $ words line
-            else Nothing
-
+                                  return $ if "haddock-interfaces" `isInfixOf` line
+                                      then Safe.lastMay $ words line
+                                      else Nothing
 
 getVisibleExports :: [String] -> GhcPkgOptions -> String -> Ghc (Maybe (M.Map String [String]))
 getVisibleExports allGhcOptions (GhcPkgOptions extraGHCPkgOpts) p = do
