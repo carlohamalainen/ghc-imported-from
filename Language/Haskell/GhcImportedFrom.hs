@@ -220,7 +220,7 @@ getGhcOptionsViaStack = do
 
             let result = case x of
                             Nothing         -> []
-                            Just (_, x')    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
+                            Just (x', _)    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
 
             return $ case result of
                 [r] -> Just $ filterOpts (words r) ++ [stackSnapshotPkgDb', stackLocalPkgDb']
@@ -236,7 +236,7 @@ getGhcOptionsViaCabalRepl = do
 
     let result = case x of
                     Nothing         -> []
-                    Just (_, x')    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
+                    Just (x', _)    -> filter ("--interactive" `isPrefixOf`) . lines $ x'
 
     return $ case result of
         [r] -> Just $ filterOpts (words r)
