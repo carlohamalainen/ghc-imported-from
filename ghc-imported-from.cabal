@@ -46,6 +46,7 @@ library
                  , haddock-api
                  , hspec
                  , hspec-discover
+                 , exceptions
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else
@@ -89,6 +90,7 @@ executable ghc-imported-from
                , haddock-api
                , hspec
                , hspec-discover
+               , exceptions
 
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
@@ -125,6 +127,7 @@ Test-Suite spec
                       , optparse-applicative
                       , hspec
                       , hspec-discover
+                      , exceptions
                       , haddock-api
   if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17

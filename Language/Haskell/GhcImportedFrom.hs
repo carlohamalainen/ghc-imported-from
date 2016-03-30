@@ -103,6 +103,9 @@ import Data.Functor.Identity
 
 import qualified Documentation.Haddock as Haddock
 
+import Control.Exception
+import Control.Monad.Catch
+
 import qualified DynFlags()
 
 #if __GLASGOW_HASKELL__ >= 708
@@ -164,7 +167,9 @@ shortcut (a:as) = do
 
 executeFallibly' :: String -> [String] -> IO (Maybe (String, String))
 executeFallibly' cmd args = do
-    x <- executeFallibly (pipeoe intoLazyBytes intoLazyBytes) (proc cmd args)
+    x <- (executeFallibly (pipeoe intoLazyBytes intoLazyBytes) (proc cmd args))
+         `catchIOError` -- FIXME Later, propagate the error so we can log it. Top level type should be an Either or something, not a Maybe.
+         (\e -> return $ Left $ show e)
 
     return $ case x of
         Left e              -> Nothing
