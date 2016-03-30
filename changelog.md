@@ -1,3 +1,7 @@
+2016-03-30 v0.3.0.1
+
+* Bugfix: use process-streaming to avoid deadlock on Fedora 23.
+
 2016-03-26 v0.3.0.0
 
 * New heuristics for resolving symbols.
