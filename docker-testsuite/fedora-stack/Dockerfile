@@ -16,7 +16,7 @@ WORKDIR     /opt
 # WORKDIR     /opt/ghc-imported-from
 
 ADD         ghc-imported-from-0.3.0.2.tar.gz /opt/ghc-imported-from/
-WORKDIR     /opt/ghc-imported-from
+WORKDIR     /opt/ghc-imported-from/ghc-imported-from-0.3.0.2
 
 RUN     stack setup
 RUN     stack build
