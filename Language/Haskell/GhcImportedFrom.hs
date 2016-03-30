@@ -359,7 +359,10 @@ parsePackageAndQualNameWithHash = do
 --      -XHaskell98
 --      ./renamePhotos.hs
 getGhcOptionsViaCabalOrStack :: IO [String]
-getGhcOptionsViaCabalOrStack = fromMaybe [] <$> shortcut [getGhcOptionsViaStack, getGhcOptionsViaCabalRepl]
+getGhcOptionsViaCabalOrStack = do
+    x <- fromMaybe [] <$> shortcut [getGhcOptionsViaStack, getGhcOptionsViaCabalRepl]
+    putStrLn $ "getGhcOptionsViaCabalOrStack: " ++ show x
+    return x
 
 -- | Add user-supplied GHC options.
 modifyDFlags :: [String] -> DynFlags -> IO ([GHCOption], DynFlags)
