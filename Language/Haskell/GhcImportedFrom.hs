@@ -129,9 +129,9 @@ newtype GhcOptions
     -- GHC API and ghc-pkg have inconsistencies in the naming of options, see <http://www.vex.net/~trebla/haskell/sicp.xhtml> for more details.
     = GhcOptions [String] deriving (Show)
 
-instance Monoid GhcOptions where
-    mempty  = GhcOptions []
-    (GhcOptions g) `mappend` (GhcOptions h) = GhcOptions $ g ++ h
+--instance Monoid GhcOptions where
+--    mempty  = GhcOptions []
+--    (GhcOptions g) `mappend` (GhcOptions h) = GhcOptions $ g ++ h
 
 newtype GhcPkgOptions
     -- | List of user-supplied ghc-pkg options.
