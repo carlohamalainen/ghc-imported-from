@@ -1,8 +1,14 @@
-FROM ubuntu
+FROM ubuntu:15.10
 MAINTAINER Carlo Hamalainen <carlo@carlo-hamalainen.net>
 
 RUN         apt-get -qq update
-RUN         apt-get -qqy install cabal-install ghc ghc-doc git wget happy zlib1g-dev
+RUN         apt-get -qqy install software-properties-common
+RUN         add-apt-repository ppa:hvr/ghc
+RUN         apt-get -qq update
+RUN         apt-get -qqy install git wget happy zlib1g-dev
+RUN         apt-get -qqy install ghc-7.10.3 ghc-7.10.3-prof ghc-7.10.3-dyn ghc-7.10.3-htmldocs cabal-install
+
+ENV         PATH    /opt/ghc/7.10.3/bin:$PATH
 
 RUN         mkdir -p /opt
 WORKDIR     /opt
