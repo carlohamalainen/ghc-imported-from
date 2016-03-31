@@ -1,0 +1,8 @@
+deb http://ftp.debian.org/debian testing main
+deb-src http://ftp.debian.org/debian testing main
+
+deb http://ftp.debian.org/debian testing-updates main
+deb-src http://ftp.debian.org/debian testing-updates main
+
+deb http://security.debian.org/ testing/updates main
+deb-src http://security.debian.org/ testing/updates main
