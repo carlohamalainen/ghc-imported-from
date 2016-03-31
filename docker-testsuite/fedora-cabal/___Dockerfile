@@ -1,0 +1,30 @@
+FROM fedora
+MAINTAINER Carlo Hamalainen <carlo@carlo-hamalainen.net>
+
+RUN dnf -y install ghc happy wget git cabal-install zlib-devel
+
+RUN         mkdir -p /opt
+WORKDIR     /opt
+
+# RUN wget https://hackage.haskell.org/package/ghc-imported-from-0.3.0.0/ghc-imported-from-0.3.0.0.tar.gz
+# RUN tar zxf ghc-imported-from-0.3.0.0.tar.gz
+# WORKDIR /opt/ghc-imported-from-0.3.0.0
+
+# RUN         git clone https://github.com/carlohamalainen/ghc-imported-from.git /opt/ghc-imported-from
+# WORKDIR     /opt/ghc-imported-from
+
+RUN         mkdir /opt/ghc_7.10.3
+WORKDIR     /opt/ghc_7.10.3
+RUN         wget http://downloads.haskell.org/~ghc/7.10.3/ghc-7.10.3-x86_64-centos67-linux.tar.xz
+
+
+#ADD         ghc-imported-from-0.3.0.2.tar.gz /opt/ghc-imported-from/
+#WORKDIR     /opt/ghc-imported-from/ghc-imported-from-0.3.0.2
+
+#ENV         PATH /.cabal/bin:/opt/ghc-imported-from/.cabal-sandbox/bin:$PATH
+
+#ADD         build_and_test.sh /opt/ghc-imported-from/ghc-imported-from-0.3.0.2/
+
+# RUN         bash build_and_test.sh
+
+CMD /bin/bash
