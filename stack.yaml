@@ -3,7 +3,8 @@ packages:
 - '.'
 extra-deps:
 - ghc-7.10.3
-- conceit-0.3.2.0
+- conceit-0.4.0.0
 - pipes-text-0.0.1.0
-- process-streaming-0.7.2.2
+- process-streaming-0.9.1.0
+- pipes-transduce-0.3.4.0
 resolver: lts-5.10
