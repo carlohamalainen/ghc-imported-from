@@ -184,7 +184,7 @@ getStackSnapshotPkgDb :: IO (Maybe String)
 getStackSnapshotPkgDb = do
     putStrLn "getStackSnapshotPkgDb ..."
 
-    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap snd) <$> executeFallibly' "stack" ["path", "--snapshot-pkg-db"]
+    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap fst) <$> executeFallibly' "stack" ["path", "--snapshot-pkg-db"]
 
     return $ case x of
         Nothing     -> Nothing
@@ -196,7 +196,7 @@ getStackLocalPkgDb :: IO (Maybe String)
 getStackLocalPkgDb = do
     putStrLn "getStackLocalPkgDb ..."
 
-    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap snd) <$> executeFallibly' "stack" ["path", "--local-pkg-db"]
+    x <- join <$> (fmap (fmap unwords . fmap words . Safe.headMay . lines) . fmap fst) <$> executeFallibly' "stack" ["path", "--local-pkg-db"]
 
     return $ case x of
         Nothing     -> Nothing
