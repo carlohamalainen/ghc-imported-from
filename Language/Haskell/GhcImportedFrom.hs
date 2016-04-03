@@ -167,13 +167,13 @@ shortcut (a:as) = do
 
 executeFallibly' :: String -> [String] -> IO (Maybe (String, String))
 executeFallibly' cmd args = do
-    x <- (executeFallibly (pipeoe intoLazyBytes intoLazyBytes) (proc cmd args))
+    x <- (executeFallibly (piped (proc cmd args)) ((,) <$> (foldOut intoLazyBytes) <*> (foldErr intoLazyBytes)))
          `catchIOError` -- FIXME Later, propagate the error so we can log it. Top level type should be an Either or something, not a Maybe.
          (\e -> return $ Left $ show e)
 
     return $ case x of
         Left e              -> Nothing
-        Right (_, (a, b))   -> Just $ (b2s a, b2s b)
+        Right (a, b)   -> Just $ (b2s a, b2s b)
 
   where
 

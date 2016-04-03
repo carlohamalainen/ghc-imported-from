@@ -36,7 +36,7 @@ library
                  , safe
                  , bytestring
                  , process
-                 , process-streaming < 0.9.0.0
+                 , process-streaming >= 0.9.0.0
                  , directory
                  , containers
                  , mtl
@@ -60,7 +60,7 @@ executable fake-ghc-for-ghc-imported-from
   hs-source-dirs:   src
   build-depends: base >=4.0 && <5
                , process
-               , process-streaming < 0.9.0.0
+               , process-streaming >= 0.9.0.0
   default-language:  Haskell2010
 
 executable ghc-imported-from
@@ -80,7 +80,7 @@ executable ghc-imported-from
                , safe
                , bytestring
                , process
-               , process-streaming < 0.9.0.0
+               , process-streaming >= 0.9.0.0
                , directory
                , containers
                , mtl
@@ -118,7 +118,7 @@ Test-Suite spec
                       , safe
                       , bytestring
                       , process
-                      , process-streaming < 0.9.0.0
+                      , process-streaming >= 0.9.0.0
                       , directory
                       , containers
                       , mtl
