@@ -1,3 +1,8 @@
+2016-04-04 v0.3.0.3
+
+* Bugfix: was parsing stderr instead of stdout for some 'stack path' commands.
+* Build against process-streaming-0.9.1.0 instead of process-streaming-0.7.2.2.
+
 2016-03-30 v0.3.0.2
 
 * Bugfix to the bugfix.
