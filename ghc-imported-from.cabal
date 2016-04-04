@@ -47,6 +47,7 @@ library
                  , hspec
                  , hspec-discover
                  , exceptions
+                 , pipes-transduce < 0.3.4.0
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else
