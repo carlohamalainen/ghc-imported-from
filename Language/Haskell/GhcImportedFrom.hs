@@ -50,6 +50,7 @@ module Language.Haskell.GhcImportedFrom (
 
 import Control.Applicative
 import Control.Monad
+import Data.Char (isAlpha)
 import Data.List
 import Data.Maybe
 import Data.Typeable()
@@ -991,9 +992,19 @@ refineRemoveHiding exports = map (\e -> e { qualifiedExports = f e }) exports
 
     qualifyName :: [QualifiedName] -> Symbol -> QualifiedName
     qualifyName qualifiedNames name
-        = case filter (postfixMatch name) qualifiedNames of
+        -- = case filter (postfixMatch name) qualifiedNames of
+        = case filter (name `f`) qualifiedNames of
             [match]     -> match
-            _           -> error $ "Could not qualify " ++ name ++ " from these exports: " ++ show qualifiedNames
+            m           -> error $ "Could not qualify " ++ name ++ " from these exports: " ++ show qualifiedNames ++ "\n    matches: " ++ show m
+
+        -- Time for some stringly typed rubbish. The previous test used
+        -- postfixMatch but this failed on an import that had "hiding (lines, unlines)" since
+        -- both lines and unlines matched. Prepending a dot doesn't work due to things like ".=" from
+        -- Control.Lens. So we manually check that the suffix matches, that the next symbol is a dot,
+        -- and then an alpha character, which hopefully is the end of a module name. Such a mess.
+        where f n qn = if length qn - length n - 2 >= 0
+                            then n `isSuffixOf` qn && isAlpha (qn !! (length qn - length n - 2)) && (qn !! (length qn - length n - 1)) == '.'
+                            else error $ "Internal error: trying to check if \"" ++ n ++ "\" is a match for \"" ++ qn ++ "\""
 
 refineExportsIt :: String -> [ModuleExports] -> [ModuleExports]
 refineExportsIt symbol exports = map (\e -> e { qualifiedExports = f symbol e }) exports
