@@ -1,3 +1,7 @@
+2016-04-05 v0.3.0.4
+
+* Bugfix: upper bound on pipes-transduce to fix a build error.
+
 2016-04-04 v0.3.0.3
 
 * Bugfix: was parsing stderr instead of stdout for some 'stack path' commands.
