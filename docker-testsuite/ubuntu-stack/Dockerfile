@@ -13,10 +13,10 @@ RUN         apt-get -qqy install stack
 RUN         mkdir -p /opt
 WORKDIR     /opt
 
-ADD         ghc-imported-from-0.3.0.2.tar.gz /opt/ghc-imported-from/
-WORKDIR     /opt/ghc-imported-from/ghc-imported-from-0.3.0.2
+ADD         ghc-imported-from-0.3.0.5.tar.gz /opt/ghc-imported-from/
+WORKDIR     /opt/ghc-imported-from/ghc-imported-from-0.3.0.5
 
-ADD         build_and_test.sh /opt/ghc-imported-from/ghc-imported-from-0.3.0.2/
+ADD         build_and_test.sh /opt/ghc-imported-from/ghc-imported-from-0.3.0.5/
 RUN         bash build_and_test.sh
 
 CMD /bin/bash

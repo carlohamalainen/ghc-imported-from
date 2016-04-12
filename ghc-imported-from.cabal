@@ -1,5 +1,5 @@
 name:                ghc-imported-from
-version:             0.3.0.4
+version:             0.3.0.5
 synopsis:            Find the Haddock documentation for a symbol.
 description:         Given a Haskell module and symbol, determine the URL to the Haddock documentation
                      for that symbol.
@@ -47,7 +47,7 @@ library
                  , hspec
                  , hspec-discover
                  , exceptions
-                 , pipes-transduce < 0.3.4.0
+                 , pipes-transduce
     if impl(ghc < 7.7)
       Build-Depends:  Cabal >= 1.10 && < 1.17
     else

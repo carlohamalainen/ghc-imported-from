@@ -6,5 +6,5 @@ extra-deps:
 - conceit-0.4.0.0
 - pipes-text-0.0.1.0
 - process-streaming-0.9.1.0
-- pipes-transduce-0.3.3.0
+- pipes-transduce-0.3.4.0
 resolver: lts-5.11

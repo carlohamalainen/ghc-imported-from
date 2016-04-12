@@ -1,3 +1,9 @@
+2016-04-12 v0.3.0.5
+
+* Remove upper bound on pipes-transduce.
+
+pipes-transduce
+
 2016-04-05 v0.3.0.4
 
 * Bugfix: upper bound on pipes-transduce to fix a build error.
