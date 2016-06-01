@@ -1,3 +1,7 @@
+2016-06-01 v0.3.0.6
+
+* Bugfix - remove duplicates from result of qualifiedNames.
+
 2016-04-12 v0.3.0.5
 
 * Remove upper bound on pipes-transduce.
