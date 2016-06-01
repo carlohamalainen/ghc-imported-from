@@ -3,6 +3,8 @@
 set -e
 set -x
 
+find . -name ghc-imported-from-*.tar.gz -exec rm -v {} \;
+
 cabal sdist
 cp dist/ghc-imported-from-*.tar.gz docker-testsuite/debian-cabal/
 cp dist/ghc-imported-from-*.tar.gz docker-testsuite/debian-stack/
