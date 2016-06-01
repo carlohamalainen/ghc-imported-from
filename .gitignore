@@ -8,5 +8,6 @@ tmp/*
 docker-testsuite/debian-cabal/ghc-imported-from-*.tar.gz
 docker-testsuite/debian-stack/ghc-imported-from-*.tar.gz
 docker-testsuite/fedora-stack/ghc-imported-from-*.tar.gz
+docker-testsuite/fedora-cabal/ghc-imported-from-*.tar.gz
 docker-testsuite/ubuntu-cabal/ghc-imported-from-*.tar.gz
-docker-testsuite/*/ghc-imported-from*tar.gz
+
