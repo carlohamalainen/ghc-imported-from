@@ -993,7 +993,7 @@ refineRemoveHiding exports = map (\e -> e { qualifiedExports = f e }) exports
     qualifyName :: [QualifiedName] -> Symbol -> QualifiedName
     qualifyName qualifiedNames name
         -- = case filter (postfixMatch name) qualifiedNames of
-        = case filter (name `f`) qualifiedNames of
+        = case nub (filter (name `f`) qualifiedNames) of
             [match]     -> match
             m           -> error $ "Could not qualify " ++ name ++ " from these exports: " ++ show qualifiedNames ++ "\n    matches: " ++ show m
 
