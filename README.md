@@ -71,7 +71,7 @@ Or watch the screencast (be sure to set 720p HD and then fullscreen):
 ```ghc-imported-from``` uses both GHC and ghc-pkg, which
 accept arguments in differing formats.  For example GHC takes
 ```-package-db``` while ghc-pkg takes ```--package-db=```. For more
-details: http://www.vex.net/~trebla/haskell/sicp.xhtml
+details: [Storage and Identification of Cabalized Packages](https://www.cs.toronto.edu/~trebla/personal/haskell/sicp.xhtml).
 
 ## Debugging
 
